@@ -125,8 +125,9 @@ function renderTeam(team) {
       // kliknięcie gracza → aktywacja
       div.onclick = ()=> {
         if(activePlayer) document.querySelectorAll(".player").forEach(el=>el.classList.remove("active"));
-        activePlayer = { team, id };
+        activePlayer = { team, id, playerData:{...p} };
         div.classList.add("active");
+        renderOptions();
       };
 
       const input = div.querySelector("input");
@@ -164,7 +165,7 @@ function canUse(team, field, value) {
   return true;
 }
 
-/* ===== PANEL OPCJI ZAWSZE WIDOCZNY ===== */
+/* ===== PANEL OPCJI ZAWSZE WIDOCZNY + MOŻLIWOŚĆ COFANIA ===== */
 function renderOptions() {
   makeOptions(TITANS,"titans","titan");
   makeOptions(WEAPONS,"weapons","heavy");
@@ -187,10 +188,18 @@ function makeOptions(list,target,field) {
       if(field==="tactical" && LIMITED_TACTICALS.includes(val)) return isTaken(team,"tactical",val);
       return false;
     });
-    if(blocked) o.classList.add("disabled");
+    if(blocked && !(activePlayer && activePlayer.playerData[field]===val)) o.classList.add("disabled");
 
     o.onclick=()=>{
       if(!activePlayer) return alert("Najpierw wybierz gracza");
+
+      // jeśli gracz już ma tę opcję → usuń (cofnięcie)
+      if(activePlayer.playerData[field]===val) {
+        db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set("");
+        return;
+      }
+
+      // normalny wybór
       if(!canUse(activePlayer.team,field,val)) return;
       db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val);
     };
