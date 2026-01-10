@@ -158,7 +158,28 @@ function renderTeam(team) {
       div.className="player";
       if(activePlayer && activePlayer.id===id) div.classList.add("active");
       div.innerHTML=`
-        <b contenteditable="${isAdmin}">${p.nick}</b>
+        div.innerHTML = `
+  <input
+    value="${p.nick || ""}"
+    ${isAdmin ? "" : "disabled"}
+    style="font-weight:bold; width:90%; background:#222; color:#eee; border:none;"
+  />
+  <div class="loadout">
+    <span>${p.titan || "—"}</span>
+    <span>${p.heavy || "—"}</span>
+    <span>${p.tactical || "—"}</span>
+  </div>
+`;
+const input = div.querySelector("input");
+
+input.onclick = (e) => {
+  e.stopPropagation(); // ← KLUCZ
+};
+
+input.oninput = () => {
+  db.ref(`teams/${team}/${id}/nick`).set(input.value);
+};
+
         <div class="loadout">
           <span>${p.titan||"—"}</span>
           <span>${p.heavy||"—"}</span>
@@ -196,13 +217,21 @@ makeOptions(TACTICALS,"tacticals","tactical");
 /* ===== ADMIN ===== */
 function movePlayer(){
   if(!activePlayer) return;
-  const from=activePlayer.team;
-  const to=from==="A"?"B":"A";
-  const id=activePlayer.id;
-  db.ref(`teams/${from}/${id}`).once("value",snap=>{
-    db.ref(`teams/${to}/${id}`).set(snap.val());
-    db.ref(`teams/${from}/${id}`).remove();
-    activePlayer=null;
+
+  const from = activePlayer.team;
+  const to = from === "A" ? "B" : "A";
+  const id = activePlayer.id;
+
+  db.ref(`teams/${from}/${id}`).once("value", snap => {
+    const playerData = snap.val();
+    if(!playerData) return;
+
+    const updates = {};
+    updates[`teams/${to}/${id}`] = playerData;
+    updates[`teams/${from}/${id}`] = null;
+
+    db.ref().update(updates);
+    activePlayer = null;
   });
 }
 
