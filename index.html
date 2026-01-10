@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
-<title>Loadout Live</title>
+<title>Tabela turniejowa Titanfall 2</title>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -14,11 +14,7 @@ body {
   color:#eee;
   font-family:Arial, sans-serif;
 }
-
-h2 {
-  text-align:center;
-  margin:15px 0;
-}
+h2 { text-align:center; margin:15px 0; }
 
 .container {
   display:flex;
@@ -40,10 +36,7 @@ h2 {
   border-radius:6px;
   cursor:pointer;
 }
-
-.player.active {
-  outline:2px solid #4caf50;
-}
+.player.active { outline:2px solid #4caf50; }
 
 .player input {
   width:95%;
@@ -66,9 +59,7 @@ h2 {
   border-radius:10px;
 }
 
-.section {
-  margin-bottom:12px;
-}
+.section { margin-bottom:12px; }
 
 .options {
   display:flex;
@@ -83,7 +74,6 @@ h2 {
   cursor:pointer;
   user-select:none;
 }
-
 .option.disabled {
   opacity:0.3;
   cursor:not-allowed;
@@ -93,10 +83,12 @@ h2 {
   text-align:center;
   margin-bottom:15px;
 }
-
 button {
   padding:6px 12px;
-  margin:0 6px;
+  margin:4px;
+}
+select {
+  padding:6px;
 }
 </style>
 </head>
@@ -110,7 +102,6 @@ button {
     <h3>Drużyna A</h3>
     <div id="teamA"></div>
   </div>
-
   <div class="team">
     <h3>Drużyna B</h3>
     <div id="teamB"></div>
@@ -122,12 +113,10 @@ button {
     <b>Tytany</b>
     <div class="options" id="titans"></div>
   </div>
-
   <div class="section">
     <b>Bronie ciężkie</b>
     <div class="options" id="weapons"></div>
   </div>
-
   <div class="section">
     <b>Umiejętności taktyczne</b>
     <div class="options" id="tacticals"></div>
@@ -135,8 +124,16 @@ button {
 </div>
 
 <div class="admin" id="adminPanel" style="display:none">
-  <button onclick="movePlayer()">⇄ Przenieś do drugiej drużyny</button>
-  <button onclick="resetLoadouts()">Reset loadoutów</button>
+  <button onclick="addPlayer()">➕ Dodaj gracza</button>
+  <button onclick="movePlayer()">⇄ Przenieś gracza</button>
+  <button onclick="resetLoadouts()">🔄 Reset loadoutów</button>
+  <br><br>
+  Tryb:
+  <select onchange="setMode(this.value)">
+    <option value="10">10 graczy</option>
+    <option value="12">12 graczy</option>
+    <option value="14">14 graczy</option>
+  </select>
 </div>
 
 <script>
@@ -153,18 +150,19 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
+/* ===== ADMIN ===== */
 const isAdmin = location.search.includes("admin=1");
 if(isAdmin) document.getElementById("adminPanel").style.display="block";
 
-/* ===== STAŁE ===== */
+/* ===== DANE ===== */
 const TITANS = ["Kationa","Spopielacz","Polaris","Ronin","Ton","Legion","Monarcha"];
 const WEAPONS = ["Granat odłamkowy","Granat łukowy","Ognista gwiazda","Gwiazda grawitacyjna","Granat elektro-dymny","Ciężki ładunek wybuchowy"];
 const TACTICALS = ["Maskowanie","Ostrze pulsacyjne","Linka z hakiem","Stymulant","Ściana energetyczna","Przeskok fazowy","Holopilot"];
-
 const LIMITED_TACTICALS = ["Ostrze pulsacyjne","Ściana energetyczna"];
 
 let activePlayer = null;
 let teamsData = { A:{}, B:{} };
+let maxPlayers = 10;
 
 /* ===== RENDER DRUŻYN ===== */
 function renderTeam(team) {
@@ -198,10 +196,9 @@ function renderTeam(team) {
       box.appendChild(div);
     });
 
-    renderOptions(); // odśwież blokady
+    renderOptions();
   });
 }
-
 renderTeam("A");
 renderTeam("B");
 
@@ -209,78 +206,93 @@ renderTeam("B");
 function isTaken(team, field, value) {
   return Object.values(teamsData[team]).some(p => p[field] === value);
 }
-
 function canUse(team, field, value) {
-  if(field === "titan") return !isTaken(team, "titan", value);
-  if(field === "heavy" && value !== "Ognista gwiazda")
-    return !isTaken(team, "heavy", value);
-  if(field === "tactical" && LIMITED_TACTICALS.includes(value))
-    return !isTaken(team, "tactical", value);
+  if(field==="titan") return !isTaken(team,"titan",value);
+  if(field==="heavy" && value!=="Ognista gwiazda")
+    return !isTaken(team,"heavy",value);
+  if(field==="tactical" && LIMITED_TACTICALS.includes(value))
+    return !isTaken(team,"tactical",value);
   return true;
 }
 
 /* ===== PANEL WYBORU ===== */
 function renderOptions() {
-  makeOptions(TITANS, "titans", "titan");
-  makeOptions(WEAPONS, "weapons", "heavy");
-  makeOptions(TACTICALS, "tacticals", "tactical");
+  makeOptions(TITANS,"titans","titan");
+  makeOptions(WEAPONS,"weapons","heavy");
+  makeOptions(TACTICALS,"tacticals","tactical");
 }
 
-function makeOptions(list, target, field) {
-  const el = document.getElementById(target);
-  el.innerHTML = "";
-
+function makeOptions(list,target,field) {
+  const el=document.getElementById(target);
+  el.innerHTML="";
   list.forEach(val=>{
-    const o = document.createElement("div");
-    o.className = "option";
-    o.innerText = val;
+    const o=document.createElement("div");
+    o.className="option";
+    o.innerText=val;
 
-    if(activePlayer) {
-      if(!canUse(activePlayer.team, field, val))
-        o.classList.add("disabled");
-    }
+    if(activePlayer && !canUse(activePlayer.team,field,val))
+      o.classList.add("disabled");
 
-    o.onclick = ()=>{
+    o.onclick=()=>{
       if(!activePlayer) return alert("Najpierw wybierz gracza");
-      if(!canUse(activePlayer.team, field, val)) return;
+      if(!canUse(activePlayer.team,field,val)) return;
       db.ref(\`teams/${activePlayer.team}/${activePlayer.id}/${field}\`).set(val);
     };
-
     el.appendChild(o);
   });
 }
 
-/* ===== ADMIN ===== */
+/* ===== ADMIN FUNKCJE ===== */
+function addPlayer() {
+  const total =
+    Object.keys(teamsData.A).length +
+    Object.keys(teamsData.B).length;
+  if(total >= maxPlayers) return alert("Osiągnięto limit graczy");
+
+  const team =
+    Object.keys(teamsData.A).length <=
+    Object.keys(teamsData.B).length ? "A" : "B";
+
+  const id = "p" + Date.now();
+  db.ref(`teams/${team}/${id}`).set({
+    nick:"Nowy gracz",
+    titan:"",
+    heavy:"",
+    tactical:""
+  });
+}
+
 function movePlayer() {
   if(!activePlayer) return;
+  const from=activePlayer.team;
+  const to=from==="A"?"B":"A";
+  const id=activePlayer.id;
 
-  const from = activePlayer.team;
-  const to = from === "A" ? "B" : "A";
-  const id = activePlayer.id;
-
-  db.ref(\`teams/${from}/${id}\`).once("value", snap=>{
-    const data = snap.val();
+  db.ref(`teams/${from}/${id}`).once("value",snap=>{
+    const data=snap.val();
     if(!data) return;
-
-    const updates = {};
-    updates[\`teams/${to}/${id}\`] = data;
-    updates[\`teams/${from}/${id}\`] = null;
-
+    const updates={};
+    updates[`teams/${to}/${id}`]=data;
+    updates[`teams/${from}/${id}`]=null;
     db.ref().update(updates);
-    activePlayer = null;
+    activePlayer=null;
   });
 }
 
 function resetLoadouts() {
   ["A","B"].forEach(team=>{
     Object.keys(teamsData[team]).forEach(id=>{
-      db.ref(\`teams/${team}/${id}\`).update({
+      db.ref(`teams/${team}/${id}`).update({
         titan:"",
         heavy:"",
         tactical:""
       });
     });
   });
+}
+
+function setMode(val) {
+  maxPlayers = parseInt(val);
 }
 </script>
 
