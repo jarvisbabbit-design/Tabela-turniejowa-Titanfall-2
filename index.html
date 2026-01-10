@@ -122,13 +122,26 @@ function renderTeam(team) {
         </div>
       `;
 
-      div.onclick = ()=> activePlayer = { team, id };
+      // kliknięcie gracza → aktywacja
+      div.onclick = ()=> {
+        if(activePlayer) document.querySelectorAll(".player").forEach(el=>el.classList.remove("active"));
+        activePlayer = { team, id };
+        div.classList.add("active");
+      };
 
       const input = div.querySelector("input");
       input.onclick = e => e.stopPropagation();
-      input.oninput = ()=> {
-        db.ref(`teams/${team}/${id}/nick`).set(input.value);
-      };
+
+      // Zmiana nicku po Enterze
+      input.addEventListener("keydown", e=>{
+        if(e.key==="Enter") {
+          db.ref(`teams/${team}/${id}/nick`).set(input.value);
+          input.blur();
+        } else if(e.key==="Escape") {
+          input.value = p.nick || "";
+          input.blur();
+        }
+      });
 
       box.appendChild(div);
     });
@@ -136,7 +149,6 @@ function renderTeam(team) {
     renderOptions();
   });
 }
-
 renderTeam("A");
 renderTeam("B");
 
@@ -145,6 +157,7 @@ function isTaken(team, field, value) {
   return Object.values(teamsData[team]||{}).some(p=>p[field]===value);
 }
 function canUse(team, field, value) {
+  if(!team) return true;
   if(field==="titan") return !isTaken(team,"titan",value);
   if(field==="heavy" && value!=="Ognista gwiazda") return !isTaken(team,"heavy",value);
   if(field==="tactical" && LIMITED_TACTICALS.includes(value)) return !isTaken(team,"tactical",value);
@@ -166,9 +179,13 @@ function makeOptions(list,target,field) {
     o.className="option";
     o.innerText=val;
 
-    // blokada jeśli limit został osiągnięty
+    // Sprawdź blokady: jeśli ktokolwiek w drużynie ma to zajęte
     const blocked = ["A","B"].some(team=>{
-      return !activePlayer && !canUse(team,field,val);
+      if(!teamsData[team]) return false;
+      if(field==="titan") return isTaken(team,"titan",val);
+      if(field==="heavy" && val!=="Ognista gwiazda") return isTaken(team,"heavy",val);
+      if(field==="tactical" && LIMITED_TACTICALS.includes(val)) return isTaken(team,"tactical",val);
+      return false;
     });
     if(blocked) o.classList.add("disabled");
 
@@ -186,7 +203,6 @@ function makeOptions(list,target,field) {
 function addPlayer() {
   const total = Object.keys(teamsData.A||{}).length + Object.keys(teamsData.B||{}).length;
   if(total>=maxPlayers) return alert("Osiągnięto limit graczy");
-
   const team = (Object.keys(teamsData.A||{}).length <= Object.keys(teamsData.B||{}).length) ? "A" : "B";
   const id = "p"+Date.now();
   db.ref(`teams/${team}/${id}`).set({ nick:"Nowy gracz", titan:"", heavy:"", tactical:"" });
@@ -197,7 +213,6 @@ function movePlayer() {
   const from=activePlayer.team;
   const to=from==="A"?"B":"A";
   const id=activePlayer.id;
-
   db.ref(`teams/${from}/${id}`).once("value",snap=>{
     const data=snap.val();
     if(!data) return;
