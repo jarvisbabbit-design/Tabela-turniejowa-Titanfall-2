@@ -10,20 +10,18 @@
 <style>
 body { margin:0; background:#111; color:#eee; font-family:Arial,sans-serif; }
 h2 { text-align:center; margin:15px 0; }
-
 .container { display:flex; gap:60px; padding:20px; }
 .team { flex:1; background:#1e1e1e; padding:15px; border-radius:10px; }
 .player { background:#2b2b2b; padding:8px; margin-bottom:6px; border-radius:6px; cursor:pointer; }
 .player.active { outline:2px solid #4caf50; }
 .player input { width:95%; font-weight:bold; background:#222; color:#eee; border:none; outline:none; }
 .loadout span { margin-right:10px; opacity:0.85; }
-
 .panel { margin:20px; padding:15px; background:#1b1b1b; border-radius:10px; }
 .section { margin-bottom:12px; }
 .options { display:flex; flex-wrap:wrap; gap:6px; }
 .option { padding:6px 10px; background:#444; border-radius:5px; cursor:pointer; user-select:none; }
 .option.disabled { opacity:0.3; cursor:not-allowed; }
-
+.option.active { outline:2px solid #4caf50; }
 .admin { text-align:center; margin-bottom:15px; }
 button { padding:6px 12px; margin:4px; }
 select { padding:6px; }
@@ -31,7 +29,6 @@ select { padding:6px; }
 </head>
 
 <body>
-
 <h2>Loadout Live</h2>
 
 <div class="container">
@@ -46,18 +43,9 @@ select { padding:6px; }
 </div>
 
 <div class="panel">
-  <div class="section">
-    <b>Tytany</b>
-    <div class="options" id="titans"></div>
-  </div>
-  <div class="section">
-    <b>Bronie ciężkie</b>
-    <div class="options" id="weapons"></div>
-  </div>
-  <div class="section">
-    <b>Umiejętności taktyczne</b>
-    <div class="options" id="tacticals"></div>
-  </div>
+  <div class="section"><b>Tytany</b><div class="options" id="titans"></div></div>
+  <div class="section"><b>Bronie ciężkie</b><div class="options" id="weapons"></div></div>
+  <div class="section"><b>Umiejętności taktyczne</b><div class="options" id="tacticals"></div></div>
 </div>
 
 <div class="admin" id="adminPanel" style="display:none">
@@ -101,108 +89,90 @@ let activePlayer = null;
 let teamsData = { A:{}, B:{} };
 let maxPlayers = 10;
 
-/* ===== RENDER DRUŻYN ===== */
-function renderTeam(team) {
+/* ===== FUNKCJE RENDER ===== */
+function renderTeam(team){
   db.ref("teams/"+team).on("value", snap=>{
     teamsData[team] = snap.val() || {};
     const box = document.getElementById("team"+team);
     box.innerHTML = "";
-
     Object.entries(teamsData[team]).forEach(([id,p])=>{
       const div = document.createElement("div");
       div.className = "player";
       if(activePlayer && activePlayer.id===id) div.classList.add("active");
-
-      div.innerHTML = `
-        <input value="${p.nick || ""}" ${isAdmin?"":"disabled"} />
+      div.innerHTML=`
+        <input value="${p.nick||''}" ${isAdmin?'':'disabled'}>
         <div class="loadout">
-          <span>${p.titan || "—"}</span>
-          <span>${p.heavy || "—"}</span>
-          <span>${p.tactical || "—"}</span>
-        </div>
-      `;
-
-      div.onclick = ()=> {
-        if(activePlayer) document.querySelectorAll(".player").forEach(el=>el.classList.remove("active"));
-        activePlayer = { team, id, playerData:{...p} };
+          <span>${p.titan||'—'}</span>
+          <span>${p.heavy||'—'}</span>
+          <span>${p.tactical||'—'}</span>
+        </div>`;
+      div.onclick=()=>{
+        document.querySelectorAll(".player").forEach(el=>el.classList.remove("active"));
+        activePlayer={team,id,playerData:{...p}};
         div.classList.add("active");
         renderOptions();
       };
-
       const input = div.querySelector("input");
-      input.onclick = e => e.stopPropagation();
-      input.addEventListener("keydown", e=>{
-        if(e.key==="Enter") {
-          db.ref(`teams/${team}/${id}/nick`).set(input.value);
-          input.blur();
-        } else if(e.key==="Escape") {
-          input.value = p.nick || "";
-          input.blur();
-        }
+      input.onclick=e=>e.stopPropagation();
+      input.addEventListener("keydown",e=>{
+        if(e.key==="Enter"){ db.ref(`teams/${team}/${id}/nick`).set(input.value); input.blur(); }
+        else if(e.key==="Escape"){ input.value=p.nick||""; input.blur(); }
       });
-
       box.appendChild(div);
     });
-
     renderOptions();
   });
 }
-renderTeam("A");
-renderTeam("B");
+renderTeam("A"); renderTeam("B");
 
 /* ===== BLOKADY ===== */
-function isTaken(team, field, value, ignoreId=null) {
-  return Object.entries(teamsData[team]||{}).some(([id,p])=>{
-    if(ignoreId && id===ignoreId) return false;
-    return p[field]===value;
+function canUse(team,field,value,idIgnore){
+  let taken=false;
+  ["A","B"].forEach(t=>{
+    Object.entries(teamsData[t]||{}).forEach(([id,p])=>{
+      if(idIgnore===id) return;
+      if(field==="titan" && p.titan===value) taken=true;
+      if(field==="heavy" && value!=="Ognista gwiazda" && p.heavy===value) taken=true;
+      if(field==="tactical" && LIMITED_TACTICALS.includes(value) && p.tactical===value) taken=true;
+    });
   });
+  return !taken;
 }
 
-/* ===== PANEL OPCJI ZAWSZE WIDOCZNY + COFANIE ===== */
-function renderOptions() {
+/* ===== PANEL OPCJI ===== */
+function renderOptions(){
   makeOptions(TITANS,"titans","titan");
   makeOptions(WEAPONS,"weapons","heavy");
   makeOptions(TACTICALS,"tacticals","tactical");
 }
 
-function makeOptions(list,target,field) {
-  const el=document.getElementById(target);
-  el.innerHTML="";
+function makeOptions(list,target,field){
+  const el=document.getElementById(target); el.innerHTML="";
   list.forEach(val=>{
     const o=document.createElement("div");
-    o.className="option";
-    o.innerText=val;
+    o.className="option"; o.innerText=val;
 
-    // Blokada jeśli ktoś inny w drużynie ma wybraną opcję
-    let blocked = false;
-    ["A","B"].forEach(team=>{
-      Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
-        if(activePlayer && activePlayer.id===id) return; // pomiń aktywnego gracza
-        if(field==="titan" && p.titan===val) blocked=true;
-        if(field==="heavy" && val!=="Ognista gwiazda" && p.heavy===val) blocked=true;
-        if(field==="tactical" && LIMITED_TACTICALS.includes(val) && p.tactical===val) blocked=true;
-      });
-    });
-    if(blocked) o.classList.add("disabled");
+    if(activePlayer){
+      const current = activePlayer.playerData[field];
+      if(current===val) o.classList.add("active");
+      else if(!canUse(activePlayer.team,field,val,activePlayer.id)) o.classList.add("disabled");
+    }
 
     o.onclick=()=>{
       if(!activePlayer) return alert("Najpierw wybierz gracza");
-
       const current = activePlayer.playerData[field];
 
-      if(current===val) {
-        // Cofnięcie wyboru
+      if(current===val){
+        // odkliknięcie
         db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set("").then(()=>{
-          activePlayer.playerData[field] = "";
+          activePlayer.playerData[field]="";
           renderOptions();
         });
         return;
       }
-
-      if(!canUse(activePlayer.team, field, val, activePlayer.id)) return;
-
+      if(!canUse(activePlayer.team,field,val,activePlayer.id)) return;
       db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val).then(()=>{
-        activePlayer.playerData[field] = val;
+        activePlayer.playerData[field]=val;
         renderOptions();
       });
     };
@@ -212,41 +182,34 @@ function makeOptions(list,target,field) {
 }
 
 /* ===== ADMIN ===== */
-function addPlayer() {
+function addPlayer(){
   const total = Object.keys(teamsData.A||{}).length + Object.keys(teamsData.B||{}).length;
   if(total>=maxPlayers) return alert("Osiągnięto limit graczy");
-  const team = (Object.keys(teamsData.A||{}).length <= Object.keys(teamsData.B||{}).length) ? "A" : "B";
-  const id = "p"+Date.now();
-  db.ref(`teams/${team}/${id}`).set({ nick:"Nowy gracz", titan:"", heavy:"", tactical:"" });
+  const team = (Object.keys(teamsData.A||{}).length <= Object.keys(teamsData.B||{}).length) ? "A":"B";
+  const id="p"+Date.now();
+  db.ref(`teams/${team}/${id}`).set({nick:"Nowy gracz",titan:"",heavy:"",tactical:""});
 }
 
-function movePlayer() {
+function movePlayer(){
   if(!activePlayer) return;
-  const from=activePlayer.team;
-  const to=from==="A"?"B":"A";
-  const id=activePlayer.id;
+  const from=activePlayer.team, to=(from==="A")?"B":"A", id=activePlayer.id;
   db.ref(`teams/${from}/${id}`).once("value",snap=>{
-    const data=snap.val();
-    if(!data) return;
+    const data=snap.val(); if(!data) return;
     const updates={};
-    updates[`teams/${to}/${id}`]=data;
-    updates[`teams/${from}/${id}`]=null;
-    db.ref().update(updates);
-    activePlayer=null;
+    updates[`teams/${to}/${id}`]=data; updates[`teams/${from}/${id}`]=null;
+    db.ref().update(updates); activePlayer=null;
   });
 }
 
-function resetLoadouts() {
+function resetLoadouts(){
   ["A","B"].forEach(team=>{
     Object.keys(teamsData[team]||{}).forEach(id=>{
-      db.ref(`teams/${team}/${id}`).update({ titan:"", heavy:"", tactical:"" });
+      db.ref(`teams/${team}/${id}`).update({titan:"",heavy:"",tactical:""});
     });
   });
 }
 
-function setMode(val) {
-  maxPlayers=parseInt(val);
-}
+function setMode(val){ maxPlayers=parseInt(val); }
 </script>
 
 </body>
