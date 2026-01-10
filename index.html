@@ -1,3 +1,93 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loadout Live - Drużyny</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #111;
+    color: #eee;
+    margin: 0;
+    padding: 20px;
+  }
+  h1 { text-align: center; }
+  .teams {
+    display: flex;
+    justify-content: space-between;
+    gap: 40px;
+    margin-top: 20px;
+  }
+  .team {
+    flex: 1;
+    background: #222;
+    padding: 10px;
+    border-radius: 10px;
+  }
+  .team h2 { text-align: center; margin-top: 0; }
+  .player {
+    display: flex;
+    align-items: center;
+    margin: 5px 0;
+    padding: 5px;
+    background: #333;
+    border-radius: 5px;
+    cursor: grab;
+  }
+  .player.dragging { opacity: 0.5; }
+  .player span { width: 100px; }
+  .icons {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+  .icon {
+    width: 40px;
+    height: 40px;
+    background: #555;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 20px;
+  }
+  .icon.selected { border: 2px solid #0f0; }
+  .icon.disabled { opacity: 0.3; cursor: not-allowed; }
+  #controls { text-align: center; margin-top: 20px; }
+  button { margin: 0 5px; padding: 5px 10px; font-size: 16px; }
+</style>
+</head>
+<body>
+
+<h1>Loadout Live - Drużyny</h1>
+
+<div id="controls">
+  <button id="resetBtn">Nowy mecz (Tylko dla admina)</button>
+  <select id="modeSelect">
+    <option value="10">10 graczy</option>
+    <option value="12">12 graczy</option>
+    <option value="14">14 graczy</option>
+  </select>
+</div>
+
+<div class="teams">
+  <div class="team" id="teamA">
+    <h2>Drużyna A</h2>
+    <div class="players"></div>
+  </div>
+  <div class="team" id="teamB">
+    <h2>Drużyna B</h2>
+    <div class="players"></div>
+  </div>
+</div>
+
+<script>
+/* ====================== KONFIGURACJA FIREBASE ====================== */
 const firebaseConfig = {
   apiKey: "AIzaSyCIi8Jl0rEPsNOfFERMUSl-MV3lDiEOsVI",
   authDomain: "tabela-turniejowa-titanfall-2.firebaseapp.com",
@@ -7,3 +97,184 @@ const firebaseConfig = {
   messagingSenderId: "887537927614",
   appId: "1:887537927614:web:28f6f7e303e1a57d00e5ef"
 };
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const isAdmin = window.location.search.includes("admin=1");
+
+/* ====================== DANE GRACZY ====================== */
+let playersPerTeam = 5; // domyślnie 10 graczy = 5 vs 5
+
+const TITANS = ["Kationa","Spopielacz","Polaris","Ronin","Ton","Legion","Monarcha"];
+const WEAPONS = ["Granat odłamkowy","Granat łukowy","Ognista gwiazda","Gwiazda grawitacyjna","Granat elektro-dymny","Ciężki ładunek wybuchowy"];
+const TACTICALS = ["Maskowanie","Ostrze pulsacyjne","Linka z hakiem","Stymulant","Ściana energetyczna","Przeskok fazowy","Holopilot"];
+const tacticalLimits = { "Ostrze pulsacyjne": 1, "Ściana energetyczna": 1 };
+
+/* ====================== FUNKCJE ====================== */
+function createPlayerElement(teamId, playerId, data) {
+  const div = document.createElement("div");
+  div.classList.add("player");
+  div.setAttribute("data-player-id", playerId);
+  div.setAttribute("data-team", teamId);
+
+  if(isAdmin) {
+    div.setAttribute("draggable", true);
+    div.addEventListener("dragstart", dragStart);
+    div.addEventListener("dragend", dragEnd);
+  }
+
+  const nick = document.createElement("span");
+  nick.contentEditable = isAdmin;
+  nick.innerText = data.nick || `Gracz ${playerId}`;
+  nick.addEventListener("input", () => updateDB(teamId, playerId, {nick: nick.innerText}));
+  div.appendChild(nick);
+
+  // Tytany
+  const titanDiv = document.createElement("div");
+  titanDiv.classList.add("icons");
+  TITANS.forEach(t => {
+    const icon = document.createElement("div");
+    icon.classList.add("icon");
+    icon.innerText = t[0]; // placeholder
+    icon.title = t;
+    if(data.titan === t) icon.classList.add("selected");
+    icon.addEventListener("click", () => selectOption(teamId, playerId, "titan", t));
+    titanDiv.appendChild(icon);
+  });
+  div.appendChild(titanDiv);
+
+  // Bronie
+  const weaponDiv = document.createElement("div");
+  weaponDiv.classList.add("icons");
+  WEAPONS.forEach(w => {
+    const icon = document.createElement("div");
+    icon.classList.add("icon");
+    icon.innerText = w[0];
+    icon.title = w;
+    if(data.heavy === w) icon.classList.add("selected");
+    icon.addEventListener("click", () => selectOption(teamId, playerId, "heavy", w));
+    weaponDiv.appendChild(icon);
+  });
+  div.appendChild(weaponDiv);
+
+  // Taktyczne
+  const tacticalDiv = document.createElement("div");
+  tacticalDiv.classList.add("icons");
+  TACTICALS.forEach(t => {
+    const icon = document.createElement("div");
+    icon.classList.add("icon");
+    icon.innerText = t[0];
+    icon.title = t;
+    if(data.tactical === t) icon.classList.add("selected");
+    icon.addEventListener("click", () => selectOption(teamId, playerId, "tactical", t));
+    tacticalDiv.appendChild(icon);
+  });
+  div.appendChild(tacticalDiv);
+
+  return div;
+}
+
+function selectOption(team, playerId, field, value) {
+  db.ref(`teams/${team}/${playerId}/${field}`).once("value", snap => {
+    const current = snap.val();
+    const teamPlayers = db.ref(`teams/${team}`);
+    teamPlayers.once("value", snap => {
+      const all = snap.val() || {};
+      // Sprawdzanie reguł
+      if(field === "titan") {
+        for(let pid in all) if(all[pid].titan === value && pid!==playerId) return alert("Tytan już zajęty w drużynie!");
+      }
+      if(field === "heavy" && value !== "Ognista gwiazda") {
+        for(let pid in all) if(all[pid].heavy === value && pid!==playerId) return alert("Broń już zajęta w drużynie!");
+      }
+      if(field === "tactical" && tacticalLimits[value]) {
+        let count = 0;
+        for(let pid in all) if(all[pid].tactical === value && pid!==playerId) count++;
+        if(count >= tacticalLimits[value]) return alert("Limit tej taktycznej osiągnięty!");
+      }
+      updateDB(team, playerId, {[field]: value});
+    });
+  });
+}
+
+function updateDB(team, playerId, data) {
+  db.ref(`teams/${team}/${playerId}`).update(data);
+}
+
+function renderTeam(teamId, data) {
+  const container = document.querySelector(`#${teamId} .players`);
+  container.innerHTML = "";
+  for(const pid in data) {
+    container.appendChild(createPlayerElement(teamId, pid, data[pid]));
+  }
+}
+
+/* ====================== DRAG & DROP ====================== */
+let dragged = null;
+function dragStart(e) { dragged = this; this.classList.add("dragging"); }
+function dragEnd(e) { dragged.classList.remove("dragging"); dragged=null; }
+
+function allowDrop(e) { e.preventDefault(); }
+function dropPlayer(e) {
+  e.preventDefault();
+  if(!dragged || !isAdmin) return;
+  const targetTeam = this.id.replace("team","");
+  const oldTeam = dragged.getAttribute("data-team");
+  if(oldTeam===targetTeam) return;
+  const pid = dragged.getAttribute("data-player-id");
+  // Przeniesienie w DB
+  db.ref(`teams/${oldTeam}/${pid}`).once("value", snap => {
+    db.ref(`teams/${targetTeam}/${pid}`).set(snap.val());
+    db.ref(`teams/${oldTeam}/${pid}`).remove();
+  });
+}
+
+/* ====================== RESET ====================== */
+document.getElementById("resetBtn").addEventListener("click", () => {
+  if(!isAdmin) return;
+  ["A","B"].forEach(team => {
+    db.ref(`teams/${team}`).once("value", snap => {
+      const all = snap.val() || {};
+      for(const pid in all) {
+        db.ref(`teams/${team}/${pid}`).update({titan:"", heavy:"", tactical:""});
+      }
+    });
+  });
+});
+
+/* ====================== ZMIANA TRYBU ====================== */
+document.getElementById("modeSelect").addEventListener("change", e => {
+  playersPerTeam = parseInt(e.target.value)/2;
+  initTeams();
+});
+
+/* ====================== INICJALIZACJA ====================== */
+function initTeams() {
+  ["A","B"].forEach(team=>{
+    db.ref(`teams/${team}`).once("value", snap => {
+      let all = snap.val() || {};
+      // dodaj brakujących graczy
+      for(let i=1; i<=playersPerTeam; i++){
+        const pid = `p${i}`;
+        if(!all[pid]) all[pid] = {nick:`Gracz ${i+ (team==="B"?playersPerTeam:0)}`, titan:"", heavy:"", tactical:""};
+      }
+      db.ref(`teams/${team}`).set(all);
+    });
+  });
+}
+
+["A","B"].forEach(team=>{
+  const div = document.getElementById(`team${team}`);
+  div.addEventListener("dragover", allowDrop);
+  div.addEventListener("drop", dropPlayer);
+  db.ref(`teams/${team}`).on("value", snap => {
+    renderTeam(`team${team}`, snap.val() || {});
+  });
+});
+
+initTeams();
+
+</script>
+
+</body>
+</html>
