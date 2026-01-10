@@ -27,8 +27,8 @@ button { padding:6px 12px; margin:4px; }
 select { padding:6px; }
 </style>
 </head>
-
 <body>
+
 <h2>Loadout Live</h2>
 
 <div class="container">
@@ -126,7 +126,7 @@ function renderTeam(team){
 renderTeam("A"); renderTeam("B");
 
 /* ===== BLOKADY ===== */
-function canUse(team,field,value,idIgnore){
+function canUse(field,value,idIgnore){
   let taken=false;
   ["A","B"].forEach(t=>{
     Object.entries(teamsData[t]||{}).forEach(([id,p])=>{
@@ -155,7 +155,7 @@ function makeOptions(list,target,field){
     if(activePlayer){
       const current = activePlayer.playerData[field];
       if(current===val) o.classList.add("active");
-      else if(!canUse(activePlayer.team,field,val,activePlayer.id)) o.classList.add("disabled");
+      else if(!canUse(field,val,activePlayer.id)) o.classList.add("disabled");
     }
 
     o.onclick=()=>{
@@ -170,13 +170,12 @@ function makeOptions(list,target,field){
         });
         return;
       }
-      if(!canUse(activePlayer.team,field,val,activePlayer.id)) return;
+      if(!canUse(field,val,activePlayer.id)) return;
       db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val).then(()=>{
         activePlayer.playerData[field]=val;
         renderOptions();
       });
     };
-
     el.appendChild(o);
   });
 }
@@ -210,7 +209,7 @@ function resetLoadouts(){
 }
 
 function setMode(val){ maxPlayers=parseInt(val); }
-</script>
 
+</script>
 </body>
 </html>
