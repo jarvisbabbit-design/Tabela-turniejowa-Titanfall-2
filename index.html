@@ -2,94 +2,31 @@
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
-<title>Czemu to gówno nie działa?</title>
+<title>Loadout Live</title>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <style>
-body {
-  margin:0;
-  background:#111;
-  color:#eee;
-  font-family:Arial, sans-serif;
-}
+body { margin:0; background:#111; color:#eee; font-family:Arial,sans-serif; }
 h2 { text-align:center; margin:15px 0; }
 
-.container {
-  display:flex;
-  gap:60px;
-  padding:20px;
-}
-
-.team {
-  flex:1;
-  background:#1e1e1e;
-  padding:15px;
-  border-radius:10px;
-}
-
-.player {
-  background:#2b2b2b;
-  padding:8px;
-  margin-bottom:6px;
-  border-radius:6px;
-  cursor:pointer;
-}
+.container { display:flex; gap:60px; padding:20px; }
+.team { flex:1; background:#1e1e1e; padding:15px; border-radius:10px; }
+.player { background:#2b2b2b; padding:8px; margin-bottom:6px; border-radius:6px; cursor:pointer; }
 .player.active { outline:2px solid #4caf50; }
+.player input { width:95%; font-weight:bold; background:#222; color:#eee; border:none; outline:none; }
+.loadout span { margin-right:10px; opacity:0.85; }
 
-.player input {
-  width:95%;
-  font-weight:bold;
-  background:#222;
-  color:#eee;
-  border:none;
-  outline:none;
-}
-
-.loadout span {
-  margin-right:10px;
-  opacity:0.85;
-}
-
-.panel {
-  margin:20px;
-  padding:15px;
-  background:#1b1b1b;
-  border-radius:10px;
-}
-
+.panel { margin:20px; padding:15px; background:#1b1b1b; border-radius:10px; }
 .section { margin-bottom:12px; }
+.options { display:flex; flex-wrap:wrap; gap:6px; }
+.option { padding:6px 10px; background:#444; border-radius:5px; cursor:pointer; user-select:none; }
+.option.disabled { opacity:0.3; cursor:not-allowed; }
 
-.options {
-  display:flex;
-  flex-wrap:wrap;
-  gap:6px;
-}
-
-.option {
-  padding:6px 10px;
-  background:#444;
-  border-radius:5px;
-  cursor:pointer;
-  user-select:none;
-}
-.option.disabled {
-  opacity:0.3;
-  cursor:not-allowed;
-}
-
-.admin {
-  text-align:center;
-  margin-bottom:15px;
-}
-button {
-  padding:6px 12px;
-  margin:4px;
-}
-select {
-  padding:6px;
-}
+.admin { text-align:center; margin-bottom:15px; }
+button { padding:6px 12px; margin:4px; }
+select { padding:6px; }
 </style>
 </head>
 
@@ -154,7 +91,7 @@ const db = firebase.database();
 const isAdmin = location.search.includes("admin=1");
 if(isAdmin) document.getElementById("adminPanel").style.display="block";
 
-/* ===== DANE ===== */
+/* ===== STAŁE ===== */
 const TITANS = ["Kationa","Spopielacz","Polaris","Ronin","Ton","Legion","Monarcha"];
 const WEAPONS = ["Granat odłamkowy","Granat łukowy","Ognista gwiazda","Gwiazda grawitacyjna","Granat elektro-dymny","Ciężki ładunek wybuchowy"];
 const TACTICALS = ["Maskowanie","Ostrze pulsacyjne","Linka z hakiem","Stymulant","Ściana energetyczna","Przeskok fazowy","Holopilot"];
@@ -174,10 +111,10 @@ function renderTeam(team) {
     Object.entries(teamsData[team]).forEach(([id,p])=>{
       const div = document.createElement("div");
       div.className = "player";
-      if(activePlayer && activePlayer.id === id) div.classList.add("active");
+      if(activePlayer && activePlayer.id===id) div.classList.add("active");
 
       div.innerHTML = `
-        <input value="${p.nick || ""}" ${isAdmin ? "" : "disabled"} />
+        <input value="${p.nick || ""}" ${isAdmin?"":"disabled"} />
         <div class="loadout">
           <span>${p.titan || "—"}</span>
           <span>${p.heavy || "—"}</span>
@@ -190,7 +127,7 @@ function renderTeam(team) {
       const input = div.querySelector("input");
       input.onclick = e => e.stopPropagation();
       input.oninput = ()=> {
-        db.ref(\`teams/${team}/${id}/nick\`).set(input.value);
+        db.ref(`teams/${team}/${id}/nick`).set(input.value);
       };
 
       box.appendChild(div);
@@ -199,23 +136,22 @@ function renderTeam(team) {
     renderOptions();
   });
 }
+
 renderTeam("A");
 renderTeam("B");
 
 /* ===== BLOKADY ===== */
 function isTaken(team, field, value) {
-  return Object.values(teamsData[team]).some(p => p[field] === value);
+  return Object.values(teamsData[team]||{}).some(p=>p[field]===value);
 }
 function canUse(team, field, value) {
   if(field==="titan") return !isTaken(team,"titan",value);
-  if(field==="heavy" && value!=="Ognista gwiazda")
-    return !isTaken(team,"heavy",value);
-  if(field==="tactical" && LIMITED_TACTICALS.includes(value))
-    return !isTaken(team,"tactical",value);
+  if(field==="heavy" && value!=="Ognista gwiazda") return !isTaken(team,"heavy",value);
+  if(field==="tactical" && LIMITED_TACTICALS.includes(value)) return !isTaken(team,"tactical",value);
   return true;
 }
 
-/* ===== PANEL WYBORU ===== */
+/* ===== PANEL OPCJI ZAWSZE WIDOCZNY ===== */
 function renderOptions() {
   makeOptions(TITANS,"titans","titan");
   makeOptions(WEAPONS,"weapons","heavy");
@@ -230,36 +166,30 @@ function makeOptions(list,target,field) {
     o.className="option";
     o.innerText=val;
 
-    if(activePlayer && !canUse(activePlayer.team,field,val))
-      o.classList.add("disabled");
+    // blokada jeśli limit został osiągnięty
+    const blocked = ["A","B"].some(team=>{
+      return !activePlayer && !canUse(team,field,val);
+    });
+    if(blocked) o.classList.add("disabled");
 
     o.onclick=()=>{
       if(!activePlayer) return alert("Najpierw wybierz gracza");
       if(!canUse(activePlayer.team,field,val)) return;
-      db.ref(\`teams/${activePlayer.team}/${activePlayer.id}/${field}\`).set(val);
+      db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val);
     };
+
     el.appendChild(o);
   });
 }
 
-/* ===== ADMIN FUNKCJE ===== */
+/* ===== ADMIN ===== */
 function addPlayer() {
-  const total =
-    Object.keys(teamsData.A).length +
-    Object.keys(teamsData.B).length;
-  if(total >= maxPlayers) return alert("Osiągnięto limit graczy");
+  const total = Object.keys(teamsData.A||{}).length + Object.keys(teamsData.B||{}).length;
+  if(total>=maxPlayers) return alert("Osiągnięto limit graczy");
 
-  const team =
-    Object.keys(teamsData.A).length <=
-    Object.keys(teamsData.B).length ? "A" : "B";
-
-  const id = "p" + Date.now();
-  db.ref(`teams/${team}/${id}`).set({
-    nick:"Nowy gracz",
-    titan:"",
-    heavy:"",
-    tactical:""
-  });
+  const team = (Object.keys(teamsData.A||{}).length <= Object.keys(teamsData.B||{}).length) ? "A" : "B";
+  const id = "p"+Date.now();
+  db.ref(`teams/${team}/${id}`).set({ nick:"Nowy gracz", titan:"", heavy:"", tactical:"" });
 }
 
 function movePlayer() {
@@ -281,18 +211,14 @@ function movePlayer() {
 
 function resetLoadouts() {
   ["A","B"].forEach(team=>{
-    Object.keys(teamsData[team]).forEach(id=>{
-      db.ref(`teams/${team}/${id}`).update({
-        titan:"",
-        heavy:"",
-        tactical:""
-      });
+    Object.keys(teamsData[team]||{}).forEach(id=>{
+      db.ref(`teams/${team}/${id}`).update({ titan:"", heavy:"", tactical:"" });
     });
   });
 }
 
 function setMode(val) {
-  maxPlayers = parseInt(val);
+  maxPlayers=parseInt(val);
 }
 </script>
 
