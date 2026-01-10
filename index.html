@@ -157,15 +157,16 @@ renderTeam("B");
 function isTaken(team, field, value) {
   return Object.values(teamsData[team]||{}).some(p=>p[field]===value);
 }
-function canUse(team, field, value) {
+function canUse(team, field, value, ignorePlayerId=null) {
   if(!team) return true;
-  if(field==="titan") return !isTaken(team,"titan",value);
-  if(field==="heavy" && value!=="Ognista gwiazda") return !isTaken(team,"heavy",value);
-  if(field==="tactical" && LIMITED_TACTICALS.includes(value)) return !isTaken(team,"tactical",value);
+  const teamPlayers = teamsData[team]||{};
+  if(field==="titan") return !Object.entries(teamPlayers).some(([id,p])=>p.titan===value && id!==ignorePlayerId);
+  if(field==="heavy" && value!=="Ognista gwiazda") return !Object.entries(teamPlayers).some(([id,p])=>p.heavy===value && id!==ignorePlayerId);
+  if(field==="tactical" && LIMITED_TACTICALS.includes(value)) return !Object.entries(teamPlayers).some(([id,p])=>p.tactical===value && id!==ignorePlayerId);
   return true;
 }
 
-/* ===== PANEL OPCJI ZAWSZE WIDOCZNY + MOŻLIWOŚĆ COFANIA ===== */
+/* ===== PANEL OPCJI ZAWSZE WIDOCZNY + COFANIE ===== */
 function renderOptions() {
   makeOptions(TITANS,"titans","titan");
   makeOptions(WEAPONS,"weapons","heavy");
@@ -180,27 +181,31 @@ function makeOptions(list,target,field) {
     o.className="option";
     o.innerText=val;
 
-    // Sprawdź blokady: jeśli ktokolwiek w drużynie ma to zajęte
-    const blocked = ["A","B"].some(team=>{
-      if(!teamsData[team]) return false;
-      if(field==="titan") return isTaken(team,"titan",val);
-      if(field==="heavy" && val!=="Ognista gwiazda") return isTaken(team,"heavy",val);
-      if(field==="tactical" && LIMITED_TACTICALS.includes(val)) return isTaken(team,"tactical",val);
-      return false;
+    // Sprawdź blokady dla drużyny (oprócz aktywnego gracza)
+    let blocked = false;
+    ["A","B"].forEach(team=>{
+      Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
+        if(activePlayer && activePlayer.id===id) return; // pomiń aktywnego gracza
+        if(field==="titan" && p.titan===val) blocked=true;
+        if(field==="heavy" && val!=="Ognista gwiazda" && p.heavy===val) blocked=true;
+        if(field==="tactical" && LIMITED_TACTICALS.includes(val) && p.tactical===val) blocked=true;
+      });
     });
-    if(blocked && !(activePlayer && activePlayer.playerData[field]===val)) o.classList.add("disabled");
+    if(blocked) o.classList.add("disabled");
 
     o.onclick=()=>{
       if(!activePlayer) return alert("Najpierw wybierz gracza");
 
-      // jeśli gracz już ma tę opcję → usuń (cofnięcie)
-      if(activePlayer.playerData[field]===val) {
+      const current = activePlayer.playerData[field];
+
+      // Cofanie: kliknięcie tego, co już ma
+      if(current===val) {
         db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set("");
         return;
       }
 
-      // normalny wybór
-      if(!canUse(activePlayer.team,field,val)) return;
+      // Normalny wybór
+      if(!canUse(activePlayer.team, field, val, activePlayer.id)) return;
       db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val);
     };
 
