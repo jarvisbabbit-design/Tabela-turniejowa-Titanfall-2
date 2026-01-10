@@ -89,7 +89,7 @@ let activePlayer = null;
 let teamsData = { A:{}, B:{} };
 let maxPlayers = 10;
 
-/* ===== FUNKCJE RENDER ===== */
+/* ===== RENDER DRUŻYN ===== */
 function renderTeam(team){
   db.ref("teams/"+team).on("value", snap=>{
     teamsData[team] = snap.val() || {};
@@ -125,16 +125,14 @@ function renderTeam(team){
 }
 renderTeam("A"); renderTeam("B");
 
-/* ===== BLOKADY ===== */
-function canUse(field,value,idIgnore){
-  let taken=false;
-  ["A","B"].forEach(t=>{
-    Object.entries(teamsData[t]||{}).forEach(([id,p])=>{
-      if(idIgnore===id) return;
-      if(field==="titan" && p.titan===value) taken=true;
-      if(field==="heavy" && value!=="Ognista gwiazda" && p.heavy===value) taken=true;
-      if(field==="tactical" && LIMITED_TACTICALS.includes(value) && p.tactical===value) taken=true;
-    });
+/* ===== BLOKADY WEWNĄTRZ DRUŻYNY ===== */
+function canUse(field, value, team, idIgnore){
+  let taken = false;
+  Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
+    if(idIgnore===id) return;
+    if(field==="titan" && p.titan===value) taken=true;
+    if(field==="heavy" && value!=="Ognista gwiazda" && p.heavy===value) taken=true;
+    if(field==="tactical" && LIMITED_TACTICALS.includes(value) && p.tactical===value) taken=true;
   });
   return !taken;
 }
@@ -155,7 +153,7 @@ function makeOptions(list,target,field){
     if(activePlayer){
       const current = activePlayer.playerData[field];
       if(current===val) o.classList.add("active");
-      else if(!canUse(field,val,activePlayer.id)) o.classList.add("disabled");
+      else if(!canUse(field,val,activePlayer.team,activePlayer.id)) o.classList.add("disabled");
     }
 
     o.onclick=()=>{
@@ -170,7 +168,7 @@ function makeOptions(list,target,field){
         });
         return;
       }
-      if(!canUse(field,val,activePlayer.id)) return;
+      if(!canUse(field,val,activePlayer.team,activePlayer.id)) return;
       db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val).then(()=>{
         activePlayer.playerData[field]=val;
         renderOptions();
