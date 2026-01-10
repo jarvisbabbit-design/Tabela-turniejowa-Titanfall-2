@@ -122,7 +122,6 @@ function renderTeam(team) {
         </div>
       `;
 
-      // kliknięcie gracza → aktywacja
       div.onclick = ()=> {
         if(activePlayer) document.querySelectorAll(".player").forEach(el=>el.classList.remove("active"));
         activePlayer = { team, id, playerData:{...p} };
@@ -132,8 +131,6 @@ function renderTeam(team) {
 
       const input = div.querySelector("input");
       input.onclick = e => e.stopPropagation();
-
-      // Zmiana nicku po Enterze
       input.addEventListener("keydown", e=>{
         if(e.key==="Enter") {
           db.ref(`teams/${team}/${id}/nick`).set(input.value);
@@ -154,16 +151,11 @@ renderTeam("A");
 renderTeam("B");
 
 /* ===== BLOKADY ===== */
-function isTaken(team, field, value) {
-  return Object.values(teamsData[team]||{}).some(p=>p[field]===value);
-}
-function canUse(team, field, value, ignorePlayerId=null) {
-  if(!team) return true;
-  const teamPlayers = teamsData[team]||{};
-  if(field==="titan") return !Object.entries(teamPlayers).some(([id,p])=>p.titan===value && id!==ignorePlayerId);
-  if(field==="heavy" && value!=="Ognista gwiazda") return !Object.entries(teamPlayers).some(([id,p])=>p.heavy===value && id!==ignorePlayerId);
-  if(field==="tactical" && LIMITED_TACTICALS.includes(value)) return !Object.entries(teamPlayers).some(([id,p])=>p.tactical===value && id!==ignorePlayerId);
-  return true;
+function isTaken(team, field, value, ignoreId=null) {
+  return Object.entries(teamsData[team]||{}).some(([id,p])=>{
+    if(ignoreId && id===ignoreId) return false;
+    return p[field]===value;
+  });
 }
 
 /* ===== PANEL OPCJI ZAWSZE WIDOCZNY + COFANIE ===== */
@@ -181,7 +173,7 @@ function makeOptions(list,target,field) {
     o.className="option";
     o.innerText=val;
 
-    // Sprawdź blokady dla drużyny (oprócz aktywnego gracza)
+    // Blokada jeśli ktoś inny w drużynie ma wybraną opcję
     let blocked = false;
     ["A","B"].forEach(team=>{
       Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
@@ -198,15 +190,21 @@ function makeOptions(list,target,field) {
 
       const current = activePlayer.playerData[field];
 
-      // Cofanie: kliknięcie tego, co już ma
       if(current===val) {
-        db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set("");
+        // Cofnięcie wyboru
+        db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set("").then(()=>{
+          activePlayer.playerData[field] = "";
+          renderOptions();
+        });
         return;
       }
 
-      // Normalny wybór
       if(!canUse(activePlayer.team, field, val, activePlayer.id)) return;
-      db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val);
+
+      db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val).then(()=>{
+        activePlayer.playerData[field] = val;
+        renderOptions();
+      });
     };
 
     el.appendChild(o);
