@@ -20,9 +20,9 @@ h2 { text-align:center; margin:15px 0; }
 .panel { flex:1; margin-top:10px; padding:15px; background:#1b1b1b; border-radius:10px; }
 .section { margin-bottom:12px; }
 .options { display:flex; flex-wrap:wrap; gap:6px; }
-.option { padding:6px 10px; background:#444; border-radius:5px; cursor:pointer; user-select:none; }
-.option.disabled { opacity:0.3; cursor:not-allowed; }
-.option.active { outline:2px solid #4caf50; }
+.option { padding:6px 10px; border-radius:5px; cursor:pointer; user-select:none; background:#444; }
+.option.disabled { background:#333; opacity:0.3; cursor:not-allowed; }
+.option.active { background:#4caf50; color:#000; outline:2px solid #fff; }
 .admin { text-align:center; margin-bottom:15px; }
 button { padding:6px 12px; margin:4px; }
 select { padding:6px; }
@@ -121,7 +121,7 @@ function renderTeam(team){
         document.querySelectorAll(".player").forEach(el=>el.classList.remove("active"));
         activePlayer={team,id,playerData:{...p}};
         div.classList.add("active");
-        renderOptions(); // odśwież tylko odpowiedni panel
+        renderOptions(); 
       };
       const input = div.querySelector("input");
       input.onclick=e=>e.stopPropagation();
@@ -136,7 +136,7 @@ function renderTeam(team){
 }
 renderTeam("A"); renderTeam("B");
 
-/* ===== BLOKADY WEWNĄTRZ DRUŻYNY ===== */
+/* ===== BLOKADY WEWNĄTRZ DRUŻYNY + WIZUALNE ===== */
 function canUse(field,value,team,idIgnore){
   let taken=false;
   Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
@@ -162,15 +162,26 @@ function renderTeamOptions(team){
 
 function makeOptions(list,target,field,team){
   const el=document.getElementById(target); el.innerHTML="";
+  Object.entries(teamsData[team]||{}); // potrzebne do wizualizacji
   list.forEach(val=>{
     const o=document.createElement("div");
     o.className="option"; o.innerText=val;
 
-    // aktywny gracz z tej drużyny
+    // Sprawdź kto w drużynie ma wybraną tę opcję
+    let occupiedByOther = false;
+    Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
+      if(activePlayer && activePlayer.id===id) return;
+      if(field==="titan" && p.titan===val) occupiedByOther=true;
+      if(field==="heavy" && value!=="Ognista gwiazda" && p.heavy===val) occupiedByOther=true;
+      if(field==="tactical" && LIMITED_TACTICALS.includes(val) && p.tactical===val) occupiedByOther=true;
+    });
+
     if(activePlayer && activePlayer.team===team){
       const current = activePlayer.playerData[field];
       if(current===val) o.classList.add("active");
-      else if(!canUse(field,val,team,activePlayer.id)) o.classList.add("disabled");
+      else if(occupiedByOther) o.classList.add("disabled");
+    } else if(occupiedByOther){
+      o.classList.add("disabled");
     }
 
     o.onclick=()=>{
@@ -178,7 +189,6 @@ function makeOptions(list,target,field,team){
       const current = activePlayer.playerData[field];
 
       if(current===val){
-        // odkliknięcie
         db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set("").then(()=>{
           activePlayer.playerData[field]="";
           renderOptions();
