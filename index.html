@@ -9,13 +9,16 @@
 
 <style>
 body {
+  margin:0;
   background:#111;
   color:#eee;
-  font-family:Arial;
-  margin:0;
+  font-family:Arial, sans-serif;
 }
 
-h2 { text-align:center; }
+h2 {
+  text-align:center;
+  margin:15px 0;
+}
 
 .container {
   display:flex;
@@ -42,9 +45,18 @@ h2 { text-align:center; }
   outline:2px solid #4caf50;
 }
 
+.player input {
+  width:95%;
+  font-weight:bold;
+  background:#222;
+  color:#eee;
+  border:none;
+  outline:none;
+}
+
 .loadout span {
   margin-right:10px;
-  opacity:0.8;
+  opacity:0.85;
 }
 
 .panel {
@@ -55,7 +67,7 @@ h2 { text-align:center; }
 }
 
 .section {
-  margin-bottom:10px;
+  margin-bottom:12px;
 }
 
 .options {
@@ -69,6 +81,7 @@ h2 { text-align:center; }
   background:#444;
   border-radius:5px;
   cursor:pointer;
+  user-select:none;
 }
 
 .option.disabled {
@@ -77,12 +90,13 @@ h2 { text-align:center; }
 }
 
 .admin {
-  margin:10px;
   text-align:center;
+  margin-bottom:15px;
 }
 
 button {
   padding:6px 12px;
+  margin:0 6px;
 }
 </style>
 </head>
@@ -108,19 +122,21 @@ button {
     <b>Tytany</b>
     <div class="options" id="titans"></div>
   </div>
+
   <div class="section">
     <b>Bronie ciężkie</b>
     <div class="options" id="weapons"></div>
   </div>
+
   <div class="section">
-    <b>Taktyczne</b>
+    <b>Umiejętności taktyczne</b>
     <div class="options" id="tacticals"></div>
   </div>
 </div>
 
 <div class="admin" id="adminPanel" style="display:none">
   <button onclick="movePlayer()">⇄ Przenieś do drugiej drużyny</button>
-  <button onclick="resetLoadout()">Reset loadoutów</button>
+  <button onclick="resetLoadouts()">Reset loadoutów</button>
 </div>
 
 <script>
@@ -140,111 +156,128 @@ const db = firebase.database();
 const isAdmin = location.search.includes("admin=1");
 if(isAdmin) document.getElementById("adminPanel").style.display="block";
 
-/* ===== DANE ===== */
+/* ===== STAŁE ===== */
 const TITANS = ["Kationa","Spopielacz","Polaris","Ronin","Ton","Legion","Monarcha"];
 const WEAPONS = ["Granat odłamkowy","Granat łukowy","Ognista gwiazda","Gwiazda grawitacyjna","Granat elektro-dymny","Ciężki ładunek wybuchowy"];
 const TACTICALS = ["Maskowanie","Ostrze pulsacyjne","Linka z hakiem","Stymulant","Ściana energetyczna","Przeskok fazowy","Holopilot"];
 
-let activePlayer = null;
+const LIMITED_TACTICALS = ["Ostrze pulsacyjne","Ściana energetyczna"];
 
-/* ===== RENDER GRACZY ===== */
+let activePlayer = null;
+let teamsData = { A:{}, B:{} };
+
+/* ===== RENDER DRUŻYN ===== */
 function renderTeam(team) {
   db.ref("teams/"+team).on("value", snap=>{
+    teamsData[team] = snap.val() || {};
     const box = document.getElementById("team"+team);
-    box.innerHTML="";
-    const data = snap.val()||{};
-    Object.entries(data).forEach(([id,p])=>{
-      const div=document.createElement("div");
-      div.className="player";
-      if(activePlayer && activePlayer.id===id) div.classList.add("active");
-      div.innerHTML=`
-        div.innerHTML = `
-  <input
-    value="${p.nick || ""}"
-    ${isAdmin ? "" : "disabled"}
-    style="font-weight:bold; width:90%; background:#222; color:#eee; border:none;"
-  />
-  <div class="loadout">
-    <span>${p.titan || "—"}</span>
-    <span>${p.heavy || "—"}</span>
-    <span>${p.tactical || "—"}</span>
-  </div>
-`;
-const input = div.querySelector("input");
+    box.innerHTML = "";
 
-input.onclick = (e) => {
-  e.stopPropagation(); // ← KLUCZ
-};
+    Object.entries(teamsData[team]).forEach(([id,p])=>{
+      const div = document.createElement("div");
+      div.className = "player";
+      if(activePlayer && activePlayer.id === id) div.classList.add("active");
 
-input.oninput = () => {
-  db.ref(`teams/${team}/${id}/nick`).set(input.value);
-};
-
+      div.innerHTML = `
+        <input value="${p.nick || ""}" ${isAdmin ? "" : "disabled"} />
         <div class="loadout">
-          <span>${p.titan||"—"}</span>
-          <span>${p.heavy||"—"}</span>
-          <span>${p.tactical||"—"}</span>
-        </div>`;
-      div.onclick=()=>activePlayer={team,id};
-      div.querySelector("b").oninput=e=>{
-        db.ref(`teams/${team}/${id}/nick`).set(e.target.innerText);
+          <span>${p.titan || "—"}</span>
+          <span>${p.heavy || "—"}</span>
+          <span>${p.tactical || "—"}</span>
+        </div>
+      `;
+
+      div.onclick = ()=> activePlayer = { team, id };
+
+      const input = div.querySelector("input");
+      input.onclick = e => e.stopPropagation();
+      input.oninput = ()=> {
+        db.ref(\`teams/${team}/${id}/nick\`).set(input.value);
       };
+
       box.appendChild(div);
     });
+
+    renderOptions(); // odśwież blokady
   });
 }
+
 renderTeam("A");
 renderTeam("B");
 
+/* ===== BLOKADY ===== */
+function isTaken(team, field, value) {
+  return Object.values(teamsData[team]).some(p => p[field] === value);
+}
+
+function canUse(team, field, value) {
+  if(field === "titan") return !isTaken(team, "titan", value);
+  if(field === "heavy" && value !== "Ognista gwiazda")
+    return !isTaken(team, "heavy", value);
+  if(field === "tactical" && LIMITED_TACTICALS.includes(value))
+    return !isTaken(team, "tactical", value);
+  return true;
+}
+
 /* ===== PANEL WYBORU ===== */
-function makeOptions(list, target, field){
-  const el=document.getElementById(target);
+function renderOptions() {
+  makeOptions(TITANS, "titans", "titan");
+  makeOptions(WEAPONS, "weapons", "heavy");
+  makeOptions(TACTICALS, "tacticals", "tactical");
+}
+
+function makeOptions(list, target, field) {
+  const el = document.getElementById(target);
+  el.innerHTML = "";
+
   list.forEach(val=>{
-    const o=document.createElement("div");
-    o.className="option";
-    o.innerText=val;
-    o.onclick=()=>{
+    const o = document.createElement("div");
+    o.className = "option";
+    o.innerText = val;
+
+    if(activePlayer) {
+      if(!canUse(activePlayer.team, field, val))
+        o.classList.add("disabled");
+    }
+
+    o.onclick = ()=>{
       if(!activePlayer) return alert("Najpierw wybierz gracza");
-      db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val);
+      if(!canUse(activePlayer.team, field, val)) return;
+      db.ref(\`teams/${activePlayer.team}/${activePlayer.id}/${field}\`).set(val);
     };
+
     el.appendChild(o);
   });
 }
-makeOptions(TITANS,"titans","titan");
-makeOptions(WEAPONS,"weapons","heavy");
-makeOptions(TACTICALS,"tacticals","tactical");
 
 /* ===== ADMIN ===== */
-function movePlayer(){
+function movePlayer() {
   if(!activePlayer) return;
 
   const from = activePlayer.team;
   const to = from === "A" ? "B" : "A";
   const id = activePlayer.id;
 
-  db.ref(`teams/${from}/${id}`).once("value", snap => {
-    const playerData = snap.val();
-    if(!playerData) return;
+  db.ref(\`teams/${from}/${id}\`).once("value", snap=>{
+    const data = snap.val();
+    if(!data) return;
 
     const updates = {};
-    updates[`teams/${to}/${id}`] = playerData;
-    updates[`teams/${from}/${id}`] = null;
+    updates[\`teams/${to}/${id}\`] = data;
+    updates[\`teams/${from}/${id}\`] = null;
 
     db.ref().update(updates);
     activePlayer = null;
   });
 }
 
-function resetLoadout(){
+function resetLoadouts() {
   ["A","B"].forEach(team=>{
-    db.ref("teams/"+team).once("value",snap=>{
-      const d=snap.val()||{};
-      Object.keys(d).forEach(id=>{
-        db.ref(`teams/${team}/${id}`).update({
-          titan:"",
-          heavy:"",
-          tactical:""
-        });
+    Object.keys(teamsData[team]).forEach(id=>{
+      db.ref(\`teams/${team}/${id}\`).update({
+        titan:"",
+        heavy:"",
+        tactical:""
       });
     });
   });
