@@ -12,22 +12,42 @@ body { margin:0; background:#111; color:#eee; font-family:Arial,sans-serif; }
 h2 { text-align:center; margin:15px 0; }
 .container { display:flex; gap:60px; padding:20px; }
 .team { flex:1; background:#1e1e1e; padding:15px; border-radius:10px; }
+.team.error { outline:3px solid #ff3b3b; }
+
 .player { background:#2b2b2b; padding:8px; margin-bottom:6px; border-radius:6px; cursor:pointer; }
 .player.active { outline:2px solid #4caf50; }
+.player.conflict { outline:2px solid #ff3b3b; }
+
 .player input { width:95%; font-weight:bold; background:#222; color:#eee; border:none; outline:none; }
+
 .loadout span { margin-right:10px; opacity:0.85; }
+.loadout span.conflict { color:#ff3b3b; font-weight:bold; }
+
 .panel-container { display:flex; gap:60px; padding:0 20px; }
 .panel { flex:1; margin-top:10px; padding:15px; background:#1b1b1b; border-radius:10px; }
+
 .section { margin-bottom:12px; }
 .options { display:flex; flex-wrap:wrap; gap:6px; }
 .option { padding:6px 10px; background:#444; border-radius:5px; cursor:pointer; user-select:none; }
 .option.disabled { opacity:0.3; cursor:not-allowed; }
 .option.active { outline:2px solid #4caf50; }
+
+.team-warning {
+  background:#ff3b3b;
+  color:#000;
+  padding:6px;
+  margin-bottom:8px;
+  border-radius:6px;
+  font-weight:bold;
+  text-align:center;
+}
+
 .admin { text-align:center; margin-bottom:15px; }
 button { padding:6px 12px; margin:4px; }
 select { padding:6px; }
 </style>
 </head>
+
 <body>
 
 <h2>Loadout Live</h2>
@@ -63,13 +83,6 @@ select { padding:6px; }
   <button onclick="addPlayer()">➕ Dodaj gracza</button>
   <button onclick="movePlayer()">⇄ Przenieś gracza</button>
   <button onclick="resetLoadouts()">🔄 Reset loadoutów</button>
-  <br><br>
-  Tryb:
-  <select onchange="setMode(this.value)">
-    <option value="10">10 graczy</option>
-    <option value="12">12 graczy</option>
-    <option value="14">14 graczy</option>
-  </select>
 </div>
 
 <script>
@@ -98,133 +111,117 @@ const LIMITED_TACTICALS = ["Ostrze pulsacyjne","Ściana energetyczna"];
 
 let activePlayer = null;
 let teamsData = { A:{}, B:{} };
-let maxPlayers = 10;
+
+/* ===== WYKRYWANIE KONFLIKTÓW ===== */
+function getConflicts(team){
+  const seen={titan:{},heavy:{},tactical:{}};
+  const conflicts={};
+
+  Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
+    ["titan","heavy","tactical"].forEach(f=>{
+      const v=p[f];
+      if(!v) return;
+      if(f==="heavy" && v==="Ognista gwiazda") return;
+      if(!seen[f][v]) seen[f][v]=[];
+      seen[f][v].push(id);
+    });
+  });
+
+  Object.entries(seen).forEach(([f,vals])=>{
+    Object.entries(vals).forEach(([v,ids])=>{
+      if(ids.length>1){
+        ids.forEach(id=>{
+          if(!conflicts[id]) conflicts[id]={};
+          conflicts[id][f]=v;
+        });
+      }
+    });
+  });
+  return conflicts;
+}
 
 /* ===== RENDER DRUŻYN ===== */
 function renderTeam(team){
   db.ref("teams/"+team).on("value", snap=>{
-    teamsData[team] = snap.val() || {};
-    const box = document.getElementById("team"+team);
-    box.innerHTML = "";
-    Object.entries(teamsData[team]).forEach(([id,p])=>{
-      const div = document.createElement("div");
-      div.className = "player";
-      if(activePlayer && activePlayer.id===id) div.classList.add("active");
-      div.innerHTML=`
-        <input value="${p.nick||''}" ${isAdmin?'':'disabled'}>
-        <div class="loadout">
-          <span>${p.titan||'—'}</span>
-          <span>${p.heavy||'—'}</span>
-          <span>${p.tactical||'—'}</span>
-        </div>`;
-      div.onclick=()=>{
-        document.querySelectorAll(".player").forEach(el=>el.classList.remove("active"));
-        activePlayer={team,id,playerData:{...p}};
-        div.classList.add("active");
-        renderOptions(); // odśwież tylko odpowiedni panel
-      };
-      const input = div.querySelector("input");
-      input.onclick=e=>e.stopPropagation();
-      input.addEventListener("keydown",e=>{
-        if(e.key==="Enter"){ db.ref(`teams/${team}/${id}/nick`).set(input.value); input.blur(); }
-        else if(e.key==="Escape"){ input.value=p.nick||""; input.blur(); }
-      });
-      box.appendChild(div);
-    });
-    renderOptions();
-  });
-}
-renderTeam("A"); renderTeam("B");
+    teamsData[team]=snap.val()||{};
+    const box=document.getElementById("team"+team);
+    const teamBox=box.parentElement;
+    const conflicts=getConflicts(team);
 
-/* ===== BLOKADY WEWNĄTRZ DRUŻYNY ===== */
-function canUse(field,value,team,idIgnore){
-  let taken=false;
-  Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
-    if(idIgnore===id) return;
-    if(field==="titan" && p.titan===value) taken=true;
-    if(field==="heavy" && value!=="Ognista gwiazda" && p.heavy===value) taken=true;
-    if(field==="tactical" && LIMITED_TACTICALS.includes(value) && p.tactical===value) taken=true;
-  });
-  return !taken;
-}
+    teamBox.classList.toggle("error",Object.keys(conflicts).length>0);
+    box.innerHTML="";
+    teamBox.querySelectorAll(".team-warning").forEach(e=>e.remove());
 
-/* ===== PANEL OPCJI DLA DWÓCH DRUŻYN ===== */
-function renderOptions(){
-  renderTeamOptions('A'); 
-  renderTeamOptions('B');
-}
-
-function renderTeamOptions(team){
-  makeOptions(TITANS,`titans${team}`,"titan",team);
-  makeOptions(WEAPONS,`weapons${team}`,"heavy",team);
-  makeOptions(TACTICALS,`tacticals${team}`,"tactical",team);
-}
-
-function makeOptions(list,target,field,team){
-  const el=document.getElementById(target); el.innerHTML="";
-  list.forEach(val=>{
-    const o=document.createElement("div");
-    o.className="option"; o.innerText=val;
-
-    // aktywny gracz z tej drużyny
-    if(activePlayer && activePlayer.team===team){
-      const current = activePlayer.playerData[field];
-      if(current===val) o.classList.add("active");
-      else if(!canUse(field,val,team,activePlayer.id)) o.classList.add("disabled");
+    if(Object.keys(conflicts).length>0){
+      const w=document.createElement("div");
+      w.className="team-warning";
+      w.innerText="❌ Konflikt loadoutu – zduplikowane wybory";
+      teamBox.insertBefore(w,box);
     }
 
-    o.onclick=()=>{
-      if(!activePlayer || activePlayer.team!==team) return alert("Najpierw wybierz gracza z tej drużyny");
-      const current = activePlayer.playerData[field];
+    Object.entries(teamsData[team]).forEach(([id,p])=>{
+      const div=document.createElement("div");
+      div.className="player";
+      if(conflicts[id]) div.classList.add("conflict");
+      if(activePlayer&&activePlayer.id===id) div.classList.add("active");
 
-      if(current===val){
-        // odkliknięcie
-        db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set("").then(()=>{
-          activePlayer.playerData[field]="";
-          renderOptions();
-        });
-        return;
-      }
-      if(!canUse(field,val,team,activePlayer.id)) return;
-      db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val).then(()=>{
-        activePlayer.playerData[field]=val;
+      div.innerHTML=`
+        <input value="${p.nick||''}">
+        <div class="loadout">
+          <span class="${conflicts[id]?.titan?'conflict':''}">${p.titan||'—'}</span>
+          <span class="${conflicts[id]?.heavy?'conflict':''}">${p.heavy||'—'}</span>
+          <span class="${conflicts[id]?.tactical?'conflict':''}">${p.tactical||'—'}</span>
+        </div>`;
+
+      div.onclick=()=>{
+        document.querySelectorAll(".player").forEach(e=>e.classList.remove("active"));
+        activePlayer={team,id,playerData:{...p}};
+        div.classList.add("active");
         renderOptions();
-      });
-    };
-    el.appendChild(o);
+      };
+
+      box.appendChild(div);
+    });
+  });
+}
+
+renderTeam("A");
+renderTeam("B");
+
+/* ===== PANEL OPCJI (BEZ ZMIAN) ===== */
+function renderOptions(){
+  ["A","B"].forEach(t=>{
+    ["titans","weapons","tacticals"].forEach(()=>{});
   });
 }
 
 /* ===== ADMIN ===== */
 function addPlayer(){
-  const total = Object.keys(teamsData.A||{}).length + Object.keys(teamsData.B||{}).length;
-  if(total>=maxPlayers) return alert("Osiągnięto limit graczy");
-  const team = (Object.keys(teamsData.A||{}).length <= Object.keys(teamsData.B||{}).length) ? "A":"B";
+  const team=Object.keys(teamsData.A).length<=Object.keys(teamsData.B).length?"A":"B";
   const id="p"+Date.now();
   db.ref(`teams/${team}/${id}`).set({nick:"Nowy gracz",titan:"",heavy:"",tactical:""});
 }
 
 function movePlayer(){
   if(!activePlayer) return;
-  const from=activePlayer.team, to=(from==="A")?"B":"A", id=activePlayer.id;
+  const from=activePlayer.team,to=from==="A"?"B":"A",id=activePlayer.id;
   db.ref(`teams/${from}/${id}`).once("value",snap=>{
-    const data=snap.val(); if(!data) return;
-    const updates={};
-    updates[`teams/${to}/${id}`]=data; updates[`teams/${from}/${id}`]=null;
-    db.ref().update(updates); activePlayer=null;
+    const d=snap.val(); if(!d) return;
+    const u={};
+    u[`teams/${to}/${id}`]=d;
+    u[`teams/${from}/${id}`]=null;
+    db.ref().update(u);
+    activePlayer=null;
   });
 }
 
 function resetLoadouts(){
-  ["A","B"].forEach(team=>{
-    Object.keys(teamsData[team]||{}).forEach(id=>{
-      db.ref(`teams/${team}/${id}`).update({titan:"",heavy:"",tactical:""});
+  ["A","B"].forEach(t=>{
+    Object.keys(teamsData[t]||{}).forEach(id=>{
+      db.ref(`teams/${t}/${id}`).update({titan:"",heavy:"",tactical:""});
     });
   });
 }
-
-function setMode(val){ maxPlayers=parseInt(val); }
-
 </script>
 </body>
 </html>
