@@ -16,6 +16,17 @@ h2 { text-align:center; margin:15px 0; }
 .player.active { outline:2px solid #4caf50; }
 .player input { width:95%; font-weight:bold; background:#222; color:#eee; border:none; outline:none; }
 .loadout span { margin-right:10px; opacity:0.85; }
+
+/* ---- NOWE: konflikt gracza ---- */
+.player.conflict {
+  outline: 2px solid #ff3b3b;
+  background: #3a1b1b;
+}
+.player.conflict .loadout span {
+  color: #ff8a8a;
+  font-weight: bold;
+}
+
 .panel-container { display:flex; gap:60px; padding:0 20px; }
 .panel { flex:1; margin-top:10px; padding:15px; background:#1b1b1b; border-radius:10px; }
 .section { margin-bottom:12px; }
@@ -23,7 +34,6 @@ h2 { text-align:center; margin:15px 0; }
 .option { padding:6px 10px; background:#444; border-radius:5px; cursor:pointer; user-select:none; }
 .option.disabled { opacity:0.3; cursor:not-allowed; }
 .option.active { outline:2px solid #4caf50; }
-.option.duplicate { outline:2px solid #ff3b3b; background:#552222; }
 .admin { text-align:center; margin-bottom:15px; }
 button { padding:6px 12px; margin:4px; }
 select { padding:6px; }
@@ -101,17 +111,47 @@ let activePlayer = null;
 let teamsData = { A:{}, B:{} };
 let maxPlayers = 10;
 
+/* ===== POMOCNICZE DUPLIKATY ===== */
+function getDuplicates(team, field){
+  const vals = [];
+  Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
+    const v = p[field];
+    if(v) vals.push(v);
+  });
+  return vals.filter((v,i,a)=>a.indexOf(v)!==i);
+}
+
+function playerHasConflict(team, playerId){
+  const p = teamsData[team]?.[playerId];
+  if(!p) return false;
+
+  if(p.titan){
+    const d = getDuplicates(team,"titan");
+    if(d.includes(p.titan)) return true;
+  }
+  if(p.heavy && p.heavy!=="Ognista gwiazda"){
+    const d = getDuplicates(team,"heavy");
+    if(d.includes(p.heavy)) return true;
+  }
+  if(p.tactical && LIMITED_TACTICALS.includes(p.tactical)){
+    const d = getDuplicates(team,"tactical");
+    if(d.includes(p.tactical)) return true;
+  }
+  return false;
+}
+
 /* ===== RENDER DRUŻYN ===== */
 function renderTeam(team){
   db.ref("teams/"+team).on("value", snap=>{
     teamsData[team] = snap.val() || {};
     const box = document.getElementById("team"+team);
     box.innerHTML = "";
-
     Object.entries(teamsData[team]).forEach(([id,p])=>{
       const div = document.createElement("div");
+
       div.className = "player";
       if(activePlayer && activePlayer.id===id) div.classList.add("active");
+      if(playerHasConflict(team,id)) div.classList.add("conflict"); // <---- NOWE
 
       div.innerHTML=`
         <input value="${p.nick||''}" ${isAdmin?'':'disabled'}>
@@ -128,11 +168,11 @@ function renderTeam(team){
         renderOptions();
       };
 
-      const input=div.querySelector("input");
+      const input = div.querySelector("input");
       input.onclick=e=>e.stopPropagation();
       input.addEventListener("keydown",e=>{
         if(e.key==="Enter"){ db.ref(`teams/${team}/${id}/nick`).set(input.value); input.blur(); }
-        if(e.key==="Escape"){ input.value=p.nick||""; input.blur(); }
+        else if(e.key==="Escape"){ input.value=p.nick||""; input.blur(); }
       });
 
       box.appendChild(div);
@@ -142,7 +182,7 @@ function renderTeam(team){
 }
 renderTeam("A"); renderTeam("B");
 
-/* ===== BLOKADY ===== */
+/* ===== BLOKADY WEWNĄTRZ DRUŻYNY ===== */
 function canUse(field,value,team,idIgnore){
   let taken=false;
   Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
@@ -154,28 +194,10 @@ function canUse(field,value,team,idIgnore){
   return !taken;
 }
 
-/* ===== DUPLIKATY (PATCH) ===== */
-function getDuplicates(team, field){
-  const count={};
-
-  Object.values(teamsData[team]||{}).forEach(p=>{
-    const val=p[field];
-    if(!val) return;
-
-    // filtr rzeczy które W OGÓLE mogą się duplikować
-    if(field==="heavy" && val==="Ognista gwiazda") return;
-    if(field==="tactical" && !LIMITED_TACTICALS.includes(val)) return;
-
-    count[val]=(count[val]||0)+1;
-  });
-
-  return Object.keys(count).filter(v=>count[v]>1);
-}
-
-/* ===== OPCJE ===== */
+/* ===== PANEL OPCJI DLA DWÓCH DRUŻYN ===== */
 function renderOptions(){
-  renderTeamOptions("A");
-  renderTeamOptions("B");
+  renderTeamOptions('A'); 
+  renderTeamOptions('B');
 }
 
 function renderTeamOptions(team){
@@ -185,38 +207,33 @@ function renderTeamOptions(team){
 }
 
 function makeOptions(list,target,field,team){
-  const el=document.getElementById(target);
-  el.innerHTML="";
-  const duplicates=getDuplicates(team,field);
-
+  const el=document.getElementById(target); el.innerHTML="";
   list.forEach(val=>{
     const o=document.createElement("div");
-    o.className="option";
-    o.innerText=val;
-
-    if(duplicates.includes(val)) o.classList.add("duplicate");
+    o.className="option"; o.innerText=val;
 
     if(activePlayer && activePlayer.team===team){
-      const current=activePlayer.playerData[field];
+      const current = activePlayer.playerData[field];
       if(current===val) o.classList.add("active");
       else if(!canUse(field,val,team,activePlayer.id)) o.classList.add("disabled");
     }
 
     o.onclick=()=>{
-      if(!activePlayer || activePlayer.team!==team) return;
+      if(!activePlayer || activePlayer.team!==team) return alert("Najpierw wybierz gracza z tej drużyny");
+      const current = activePlayer.playerData[field];
 
-      const current=activePlayer.playerData[field];
       if(current===val){
-        db.ref(`teams/${team}/${activePlayer.id}/${field}`).set("");
-        activePlayer.playerData[field]="";
-        renderOptions();
+        db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set("").then(()=>{
+          activePlayer.playerData[field]="";
+          renderOptions();
+        });
         return;
       }
       if(!canUse(field,val,team,activePlayer.id)) return;
-
-      db.ref(`teams/${team}/${activePlayer.id}/${field}`).set(val);
-      activePlayer.playerData[field]=val;
-      renderOptions();
+      db.ref(`teams/${activePlayer.team}/${activePlayer.id}/${field}`).set(val).then(()=>{
+        activePlayer.playerData[field]=val;
+        renderOptions();
+      });
     };
     el.appendChild(o);
   });
@@ -224,31 +241,34 @@ function makeOptions(list,target,field,team){
 
 /* ===== ADMIN ===== */
 function addPlayer(){
-  const total=Object.keys(teamsData.A).length+Object.keys(teamsData.B).length;
-  if(total>=maxPlayers) return alert("Limit graczy");
-  const team=(Object.keys(teamsData.A).length<=Object.keys(teamsData.B).length)?"A":"B";
+  const total = Object.keys(teamsData.A||{}).length + Object.keys(teamsData.B||{}).length;
+  if(total>=maxPlayers) return alert("Osiągnięto limit graczy");
+  const team = (Object.keys(teamsData.A||{}).length <= Object.keys(teamsData.B||{}).length) ? "A":"B";
   const id="p"+Date.now();
   db.ref(`teams/${team}/${id}`).set({nick:"Nowy gracz",titan:"",heavy:"",tactical:""});
 }
+
 function movePlayer(){
   if(!activePlayer) return;
-  const from=activePlayer.team,to=from==="A"?"B":"A",id=activePlayer.id;
-  db.ref(`teams/${from}/${id}`).once("value",s=>{
-    db.ref().update({
-      [`teams/${to}/${id}`]:s.val(),
-      [`teams/${from}/${id}`]:null
-    });
-    activePlayer=null;
+  const from=activePlayer.team, to=(from==="A")?"B":"A", id=activePlayer.id;
+  db.ref(`teams/${from}/${id}`).once("value",snap=>{
+    const data=snap.val(); if(!data) return;
+    const updates={};
+    updates[`teams/${to}/${id}`]=data; updates[`teams/${from}/${id}`]=null;
+    db.ref().update(updates); activePlayer=null;
   });
 }
+
 function resetLoadouts(){
-  ["A","B"].forEach(t=>{
-    Object.keys(teamsData[t]).forEach(id=>{
-      db.ref(`teams/${t}/${id}`).update({titan:"",heavy:"",tactical:""});
+  ["A","B"].forEach(team=>{
+    Object.keys(teamsData[team]||{}).forEach(id=>{
+      db.ref(`teams/${team}/${id}`).update({titan:"",heavy:"",tactical:""});
     });
   });
 }
-function setMode(v){ maxPlayers=parseInt(v); }
+
+function setMode(val){ maxPlayers=parseInt(val); }
+
 </script>
 </body>
 </html>
