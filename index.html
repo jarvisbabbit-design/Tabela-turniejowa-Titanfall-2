@@ -11,21 +11,19 @@
 body { margin:0; background:#111; color:#eee; font-family:Arial,sans-serif; }
 h2 { text-align:center; margin:15px 0; }
 .container { display:flex; gap:60px; padding:20px; }
-.team { flex:1; background:#1e1e1e; padding:15px; border-radius:10px; }
+.team { flex:1; background:#1e1e1e; padding:15px; border-radius:10px; position:relative; }
 .player { background:#2b2b2b; padding:8px; margin-bottom:6px; border-radius:6px; cursor:pointer; }
 .player.active { outline:2px solid #4caf50; }
 .player input { width:95%; font-weight:bold; background:#222; color:#eee; border:none; outline:none; }
 .loadout span { margin-right:10px; opacity:0.85; }
 
-/* ---- NOWE: konflikt gracza ---- */
-.player.conflict {
-  outline: 2px solid #ff3b3b;
-  background: #3a1b1b;
-}
-.player.conflict .loadout span {
-  color: #ff8a8a;
-  font-weight: bold;
-}
+/* --- duplikaty --- */
+.team.warning { border: 2px solid #ff3b3b; }
+.team .warning-text { color:#ff3b3b; text-align:center; font-weight:bold; margin-bottom:6px; }
+
+.player.conflict { outline:2px solid #ff3b3b; }
+.player.conflict .loadout span.duplicate { color:#ff3b3b; font-weight:bold; }
+.option.duplicate { border:2px solid #ff3b3b; background:#660000; color:#ff8a8a; }
 
 .panel-container { display:flex; gap:60px; padding:0 20px; }
 .panel { flex:1; margin-top:10px; padding:15px; background:#1b1b1b; border-radius:10px; }
@@ -44,11 +42,13 @@ select { padding:6px; }
 <h2>Loadout Live</h2>
 
 <div class="container">
-  <div class="team">
+  <div class="team" id="teamAContainer">
+    <div class="warning-text" id="warningA" style="display:none">⚠️ Duplikaty w drużynie!</div>
     <h3>Drużyna A</h3>
     <div id="teamA"></div>
   </div>
-  <div class="team">
+  <div class="team" id="teamBContainer">
+    <div class="warning-text" id="warningB" style="display:none">⚠️ Duplikaty w drużynie!</div>
     <h3>Drużyna B</h3>
     <div id="teamB"></div>
   </div>
@@ -111,7 +111,7 @@ let activePlayer = null;
 let teamsData = { A:{}, B:{} };
 let maxPlayers = 10;
 
-/* ===== POMOCNICZE DUPLIKATY ===== */
+/* ===== DUPLIKATY ===== */
 function getDuplicates(team, field){
   const vals = [];
   Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
@@ -121,22 +121,12 @@ function getDuplicates(team, field){
   return vals.filter((v,i,a)=>a.indexOf(v)!==i);
 }
 
-function playerHasConflict(team, playerId){
+function hasConflict(team, playerId){
   const p = teamsData[team]?.[playerId];
   if(!p) return false;
-
-  if(p.titan){
-    const d = getDuplicates(team,"titan");
-    if(d.includes(p.titan)) return true;
-  }
-  if(p.heavy && p.heavy!=="Ognista gwiazda"){
-    const d = getDuplicates(team,"heavy");
-    if(d.includes(p.heavy)) return true;
-  }
-  if(p.tactical && LIMITED_TACTICALS.includes(p.tactical)){
-    const d = getDuplicates(team,"tactical");
-    if(d.includes(p.tactical)) return true;
-  }
+  if(p.titan && getDuplicates(team,"titan").includes(p.titan)) return true;
+  if(p.heavy && p.heavy!=="Ognista gwiazda" && getDuplicates(team,"heavy").includes(p.heavy)) return true;
+  if(p.tactical && LIMITED_TACTICALS.includes(p.tactical) && getDuplicates(team,"tactical").includes(p.tactical)) return true;
   return false;
 }
 
@@ -145,20 +135,37 @@ function renderTeam(team){
   db.ref("teams/"+team).on("value", snap=>{
     teamsData[team] = snap.val() || {};
     const box = document.getElementById("team"+team);
+    const warning = document.getElementById("warning"+team);
     box.innerHTML = "";
+
+    // sprawdzenie czy drużyna ma jakiekolwiek duplikaty
+    let teamHasDuplicates = false;
+    Object.entries(teamsData[team]).forEach(([id,p])=>{
+      if(hasConflict(team,id)) teamHasDuplicates=true;
+    });
+    if(teamHasDuplicates){
+      warning.style.display="block";
+      document.getElementById("team"+team+"Container").classList.add("warning");
+    } else {
+      warning.style.display="none";
+      document.getElementById("team"+team+"Container").classList.remove("warning");
+    }
+
     Object.entries(teamsData[team]).forEach(([id,p])=>{
       const div = document.createElement("div");
-
       div.className = "player";
       if(activePlayer && activePlayer.id===id) div.classList.add("active");
-      if(playerHasConflict(team,id)) div.classList.add("conflict"); // <---- NOWE
 
+      // konflikt w komórce
+      if(hasConflict(team,id)) div.classList.add("conflict");
+
+      // tekst w komórce dla duplikatów
       div.innerHTML=`
         <input value="${p.nick||''}" ${isAdmin?'':'disabled'}>
         <div class="loadout">
-          <span>${p.titan||'—'}</span>
-          <span>${p.heavy||'—'}</span>
-          <span>${p.tactical||'—'}</span>
+          <span class="${getDuplicates(team,"titan").includes(p.titan)?'duplicate':''}">${p.titan||'—'}</span>
+          <span class="${(p.heavy!=="Ognista gwiazda" && getDuplicates(team,"heavy").includes(p.heavy))?'duplicate':''}">${p.heavy||'—'}</span>
+          <span class="${(LIMITED_TACTICALS.includes(p.tactical) && getDuplicates(team,"tactical").includes(p.tactical))?'duplicate':''}">${p.tactical||'—'}</span>
         </div>`;
 
       div.onclick=()=>{
@@ -208,9 +215,16 @@ function renderTeamOptions(team){
 
 function makeOptions(list,target,field,team){
   const el=document.getElementById(target); el.innerHTML="";
+  const duplicates = getDuplicates(team,field);
+
   list.forEach(val=>{
     const o=document.createElement("div");
     o.className="option"; o.innerText=val;
+
+    // podświetlenie w puli
+    if(duplicates.includes(val) && ((field==="heavy" && val!=="Ognista gwiazda") || field==="titan" || (field==="tactical" && LIMITED_TACTICALS.includes(val)))) {
+      o.classList.add("duplicate");
+    }
 
     if(activePlayer && activePlayer.team===team){
       const current = activePlayer.playerData[field];
