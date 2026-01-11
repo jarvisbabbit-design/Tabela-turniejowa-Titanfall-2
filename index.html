@@ -113,7 +113,7 @@ function renderTeam(team){
       div.className = "player";
       if(activePlayer && activePlayer.id===id) div.classList.add("active");
 
-      div.innerHTML = `
+      div.innerHTML=`
         <input value="${p.nick||''}" ${isAdmin?'':'disabled'}>
         <div class="loadout">
           <span>${p.titan||'—'}</span>
@@ -128,17 +128,11 @@ function renderTeam(team){
         renderOptions();
       };
 
-      const input = div.querySelector("input");
+      const input=div.querySelector("input");
       input.onclick=e=>e.stopPropagation();
       input.addEventListener("keydown",e=>{
-        if(e.key==="Enter"){
-          db.ref(`teams/${team}/${id}/nick`).set(input.value);
-          input.blur();
-        }
-        if(e.key==="Escape"){
-          input.value=p.nick||"";
-          input.blur();
-        }
+        if(e.key==="Enter"){ db.ref(`teams/${team}/${id}/nick`).set(input.value); input.blur(); }
+        if(e.key==="Escape"){ input.value=p.nick||""; input.blur(); }
       });
 
       box.appendChild(div);
@@ -160,13 +154,21 @@ function canUse(field,value,team,idIgnore){
   return !taken;
 }
 
-/* ===== DUPLIKATY ===== */
+/* ===== DUPLIKATY (PATCH) ===== */
 function getDuplicates(team, field){
   const count={};
+
   Object.values(teamsData[team]||{}).forEach(p=>{
-    if(!p[field]) return;
-    count[p[field]]=(count[p[field]]||0)+1;
+    const val=p[field];
+    if(!val) return;
+
+    // filtr rzeczy które W OGÓLE mogą się duplikować
+    if(field==="heavy" && val==="Ognista gwiazda") return;
+    if(field==="tactical" && !LIMITED_TACTICALS.includes(val)) return;
+
+    count[val]=(count[val]||0)+1;
   });
+
   return Object.keys(count).filter(v=>count[v]>1);
 }
 
