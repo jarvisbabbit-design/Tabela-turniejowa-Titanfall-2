@@ -15,9 +15,7 @@ h2 { text-align:center; margin:15px 0; }
 .player { background:#2b2b2b; padding:8px; margin-bottom:6px; border-radius:6px; cursor:pointer; }
 .player.active { outline:2px solid #4caf50; }
 .player input { width:95%; font-weight:bold; background:#222; color:#eee; border:none; outline:none; }
-.loadout span { margin-right:10px; opacity:0.85; padding:2px 4px; border-radius:4px; }
-.loadout span.duplicate { outline:2px solid #ff3333; color:#ff9999; }
-
+.loadout span { margin-right:10px; opacity:0.85; }
 .panel-container { display:flex; gap:60px; padding:0 20px; }
 .panel { flex:1; margin-top:10px; padding:15px; background:#1b1b1b; border-radius:10px; }
 .section { margin-bottom:12px; }
@@ -25,8 +23,7 @@ h2 { text-align:center; margin:15px 0; }
 .option { padding:6px 10px; background:#444; border-radius:5px; cursor:pointer; user-select:none; }
 .option.disabled { opacity:0.3; cursor:not-allowed; }
 .option.active { outline:2px solid #4caf50; }
-.option.duplicate { outline:2px solid #ff3333; background:#552222; }
-
+.option.duplicate { outline:2px solid #ff3b3b; background:#552222; }
 .admin { text-align:center; margin-bottom:15px; }
 button { padding:6px 12px; margin:4px; }
 select { padding:6px; }
@@ -63,6 +60,19 @@ select { padding:6px; }
   </div>
 </div>
 
+<div class="admin" id="adminPanel" style="display:none">
+  <button onclick="addPlayer()">➕ Dodaj gracza</button>
+  <button onclick="movePlayer()">⇄ Przenieś gracza</button>
+  <button onclick="resetLoadouts()">🔄 Reset loadoutów</button>
+  <br><br>
+  Tryb:
+  <select onchange="setMode(this.value)">
+    <option value="10">10 graczy</option>
+    <option value="12">12 graczy</option>
+    <option value="14">14 graczy</option>
+  </select>
+</div>
+
 <script>
 /* ===== FIREBASE ===== */
 const firebaseConfig = {
@@ -77,6 +87,10 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
+/* ===== ADMIN ===== */
+const isAdmin = location.search.includes("admin=1");
+if(isAdmin) document.getElementById("adminPanel").style.display="block";
+
 /* ===== STAŁE ===== */
 const TITANS = ["Kationa","Spopielacz","Polaris","Ronin","Ton","Legion","Monarcha"];
 const WEAPONS = ["Granat odłamkowy","Granat łukowy","Ognista gwiazda","Gwiazda grawitacyjna","Granat elektro-dymny","Ciężki ładunek wybuchowy"];
@@ -85,76 +99,154 @@ const LIMITED_TACTICALS = ["Ostrze pulsacyjne","Ściana energetyczna"];
 
 let activePlayer = null;
 let teamsData = { A:{}, B:{} };
+let maxPlayers = 10;
 
-/* ===== DUPLIKATY ===== */
-function getDuplicates(team, field){
-  const count = {};
-  Object.values(teamsData[team]||{}).forEach(p=>{
-    const val = p[field];
-    if(!val) return;
-    if(field==="heavy" && val==="Ognista gwiazda") return;
-    if(field==="tactical" && !LIMITED_TACTICALS.includes(val)) return;
-    count[val] = (count[val]||0)+1;
-  });
-  return Object.keys(count).filter(v=>count[v]>1);
-}
-
-/* ===== RENDER ===== */
+/* ===== RENDER DRUŻYN ===== */
 function renderTeam(team){
   db.ref("teams/"+team).on("value", snap=>{
     teamsData[team] = snap.val() || {};
     const box = document.getElementById("team"+team);
     box.innerHTML = "";
 
-    const dupTit = getDuplicates(team,"titan");
-    const dupHvy = getDuplicates(team,"heavy");
-    const dupTac = getDuplicates(team,"tactical");
-
     Object.entries(teamsData[team]).forEach(([id,p])=>{
       const div = document.createElement("div");
-      div.className="player";
+      div.className = "player";
+      if(activePlayer && activePlayer.id===id) div.classList.add("active");
 
-      div.innerHTML=`
-        <input value="${p.nick||''}" disabled>
+      div.innerHTML = `
+        <input value="${p.nick||''}" ${isAdmin?'':'disabled'}>
         <div class="loadout">
-          <span class="${dupTit.includes(p.titan)?'duplicate':''}">${p.titan||'—'}</span>
-          <span class="${dupHvy.includes(p.heavy)?'duplicate':''}">${p.heavy||'—'}</span>
-          <span class="${dupTac.includes(p.tactical)?'duplicate':''}">${p.tactical||'—'}</span>
-        </div>
-      `;
+          <span>${p.titan||'—'}</span>
+          <span>${p.heavy||'—'}</span>
+          <span>${p.tactical||'—'}</span>
+        </div>`;
+
+      div.onclick=()=>{
+        document.querySelectorAll(".player").forEach(el=>el.classList.remove("active"));
+        activePlayer={team,id,playerData:{...p}};
+        div.classList.add("active");
+        renderOptions();
+      };
+
+      const input = div.querySelector("input");
+      input.onclick=e=>e.stopPropagation();
+      input.addEventListener("keydown",e=>{
+        if(e.key==="Enter"){
+          db.ref(`teams/${team}/${id}/nick`).set(input.value);
+          input.blur();
+        }
+        if(e.key==="Escape"){
+          input.value=p.nick||"";
+          input.blur();
+        }
+      });
+
       box.appendChild(div);
     });
-
     renderOptions();
   });
 }
 renderTeam("A"); renderTeam("B");
 
-/* ===== OPCJE ===== */
-function renderOptions(){
-  ["A","B"].forEach(team=>{
-    const dupTit = getDuplicates(team,"titan");
-    const dupHvy = getDuplicates(team,"heavy");
-    const dupTac = getDuplicates(team,"tactical");
-
-    makeOptions(TITANS,`titans${team}`,dupTit);
-    makeOptions(WEAPONS,`weapons${team}`,dupHvy);
-    makeOptions(TACTICALS,`tacticals${team}`,dupTac);
+/* ===== BLOKADY ===== */
+function canUse(field,value,team,idIgnore){
+  let taken=false;
+  Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
+    if(idIgnore===id) return;
+    if(field==="titan" && p.titan===value) taken=true;
+    if(field==="heavy" && value!=="Ognista gwiazda" && p.heavy===value) taken=true;
+    if(field==="tactical" && LIMITED_TACTICALS.includes(value) && p.tactical===value) taken=true;
   });
+  return !taken;
 }
 
-function makeOptions(list,target,dups){
+/* ===== DUPLIKATY ===== */
+function getDuplicates(team, field){
+  const count={};
+  Object.values(teamsData[team]||{}).forEach(p=>{
+    if(!p[field]) return;
+    count[p[field]]=(count[p[field]]||0)+1;
+  });
+  return Object.keys(count).filter(v=>count[v]>1);
+}
+
+/* ===== OPCJE ===== */
+function renderOptions(){
+  renderTeamOptions("A");
+  renderTeamOptions("B");
+}
+
+function renderTeamOptions(team){
+  makeOptions(TITANS,`titans${team}`,"titan",team);
+  makeOptions(WEAPONS,`weapons${team}`,"heavy",team);
+  makeOptions(TACTICALS,`tacticals${team}`,"tactical",team);
+}
+
+function makeOptions(list,target,field,team){
   const el=document.getElementById(target);
   el.innerHTML="";
-  list.forEach(v=>{
+  const duplicates=getDuplicates(team,field);
+
+  list.forEach(val=>{
     const o=document.createElement("div");
     o.className="option";
-    o.innerText=v;
-    if(dups.includes(v)) o.classList.add("duplicate");
+    o.innerText=val;
+
+    if(duplicates.includes(val)) o.classList.add("duplicate");
+
+    if(activePlayer && activePlayer.team===team){
+      const current=activePlayer.playerData[field];
+      if(current===val) o.classList.add("active");
+      else if(!canUse(field,val,team,activePlayer.id)) o.classList.add("disabled");
+    }
+
+    o.onclick=()=>{
+      if(!activePlayer || activePlayer.team!==team) return;
+
+      const current=activePlayer.playerData[field];
+      if(current===val){
+        db.ref(`teams/${team}/${activePlayer.id}/${field}`).set("");
+        activePlayer.playerData[field]="";
+        renderOptions();
+        return;
+      }
+      if(!canUse(field,val,team,activePlayer.id)) return;
+
+      db.ref(`teams/${team}/${activePlayer.id}/${field}`).set(val);
+      activePlayer.playerData[field]=val;
+      renderOptions();
+    };
     el.appendChild(o);
   });
 }
-</script>
 
+/* ===== ADMIN ===== */
+function addPlayer(){
+  const total=Object.keys(teamsData.A).length+Object.keys(teamsData.B).length;
+  if(total>=maxPlayers) return alert("Limit graczy");
+  const team=(Object.keys(teamsData.A).length<=Object.keys(teamsData.B).length)?"A":"B";
+  const id="p"+Date.now();
+  db.ref(`teams/${team}/${id}`).set({nick:"Nowy gracz",titan:"",heavy:"",tactical:""});
+}
+function movePlayer(){
+  if(!activePlayer) return;
+  const from=activePlayer.team,to=from==="A"?"B":"A",id=activePlayer.id;
+  db.ref(`teams/${from}/${id}`).once("value",s=>{
+    db.ref().update({
+      [`teams/${to}/${id}`]:s.val(),
+      [`teams/${from}/${id}`]:null
+    });
+    activePlayer=null;
+  });
+}
+function resetLoadouts(){
+  ["A","B"].forEach(t=>{
+    Object.keys(teamsData[t]).forEach(id=>{
+      db.ref(`teams/${t}/${id}`).update({titan:"",heavy:"",tactical:""});
+    });
+  });
+}
+function setMode(v){ maxPlayers=parseInt(v); }
+</script>
 </body>
 </html>
