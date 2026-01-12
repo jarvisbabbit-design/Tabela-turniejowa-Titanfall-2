@@ -65,7 +65,7 @@ select { padding:6px; }
   </div>
 </div>
 
-<div class="admin" id="adminPanel">
+<div class="admin" id="adminPanel" style="display:block">
   <button onclick="addPlayer()">➕ Dodaj gracza</button>
   <button onclick="removePlayer()">➖ Usuń gracza</button>
   <button onclick="movePlayer()">⇄ Przenieś gracza</button>
@@ -73,9 +73,6 @@ select { padding:6px; }
 </div>
 
 <script>
-const isAdmin = location.search.includes("admin=1");
-document.getElementById("adminPanel").style.display = isAdmin ? "block" : "none";
-
 /* ===== FIREBASE ===== */
 const firebaseConfig = {
   apiKey: "AIzaSyCIi8Jl0rEPsNOfFERMUSl-MV3lDiEOsVI",
@@ -88,6 +85,9 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+const isAdmin = location.search.includes("admin=1");
+document.getElementById("adminPanel").style.display = isAdmin ? "block" : "none";
+
 
 /* ===== STAŁE ===== */
 const TITANS = ["Kationa","Spopielacz","Polaris","Ronin","Ton","Legion","Monarcha"];
@@ -105,19 +105,16 @@ function renderTeam(team){
     teamsData[team] = snap.val() || {};
     const box = document.getElementById("team"+team);
     box.innerHTML = "";
-
     Object.entries(teamsData[team]).forEach(([id,p])=>{
       const div = document.createElement("div");
       div.className = "player";
-
-      div.innerHTML = `
-        <input value="${p.nick||''}" ${isAdmin ? "" : "disabled"}>
-        <div class="loadout">
+      div.innerHTML=`
+       <input value="${p.nick||''}" ${isAdmin ? "" : "disabled"}>
+       <div class="loadout">
           <span class="titan">${p.titan||'—'}</span>
           <span class="heavy">${p.heavy||'—'}</span>
           <span class="tactical">${p.tactical||'—'}</span>
         </div>`;
-
       if(activePlayer && activePlayer.id===id) div.classList.add("active");
 
       div.onclick = ()=>{
@@ -127,58 +124,180 @@ function renderTeam(team){
         renderOptions();
       };
 
-      const input = div.querySelector("input");
-      input.onclick = e => e.stopPropagation();
+const input = div.querySelector("input");
+input.onclick = e => e.stopPropagation();
 
-      if(isAdmin){
-        const original = p.nick||"";
-        input.addEventListener("keydown", e=>{
-          if(e.key==="Enter"){
-            db.ref(`teams/${team}/${id}/nick`).set(input.value);
-            input.blur();
-          }
-          if(e.key==="Escape"){
-            input.value = original;
-            input.blur();
-          }
-        });
-      }
+if(isAdmin){
+  const originalNick = p.nick || "";
+
+  input.addEventListener("keydown", e=>{
+    if(e.key === "Enter"){
+      db.ref(`teams/${team}/${id}/nick`).set(input.value);
+      input.blur();
+    }
+
+    if(e.key === "Escape"){
+      input.value = originalNick;
+      input.blur();
+    }
+  });
+}
 
       box.appendChild(div);
     });
-
     renderOptions();
     highlightDuplicates(team);
   });
 }
 renderTeam("A"); renderTeam("B");
 
-/* ===== ADMIN (ZABLOKOWANY DLA NIE-ADMINA) ===== */
-function addPlayer(){ if(!isAdmin) return;
-  const team = Object.keys(teamsData.A||{}).length <= Object.keys(teamsData.B||{}).length ? "A":"B";
-  if(Object.keys(teamsData[team]||{}).length >= MAX_PLAYERS_PER_TEAM) return alert("Limit drużyny");
-  db.ref(`teams/${team}/p${Date.now()}`).set({nick:"Nowy gracz",titan:"",heavy:"",tactical:""});
+/* ===== BLOKADY ===== */
+function canUse(field,value,team,idIgnore){
+  let taken=false;
+  Object.entries(teamsData[team]||{}).forEach(([id,p])=>{
+    if(idIgnore===id) return;
+    if(field==="titan" && p.titan===value) taken=true;
+    if(field==="heavy" && value!=="Ognista gwiazda" && p.heavy===value) taken=true;
+    if(field==="tactical" && LIMITED_TACTICALS.includes(value) && p.tactical===value) taken=true;
+  });
+  return !taken;
 }
-function removePlayer(){ if(!isAdmin) return;
-  if(!activePlayer) return;
-  db.ref(`teams/${activePlayer.team}/${activePlayer.id}`).remove();
+
+/* ===== PANEL OPCJI ===== */
+function renderOptions(){
+  ['A','B'].forEach(team=>renderTeamOptions(team));
 }
-function movePlayer(){ if(!isAdmin) return;
-  if(!activePlayer) return;
-  const from=activePlayer.team,to=from==="A"?"B":"A";
-  db.ref(`teams/${from}/${activePlayer.id}`).once("value",snap=>{
-    const data=snap.val();
-    if(!data) return;
-    const u={};
-    u[`teams/${to}/${activePlayer.id}`]=data;
-    u[`teams/${from}/${activePlayer.id}`]=null;
-    db.ref().update(u);
+
+function renderTeamOptions(team){
+  makeOptions(TITANS,`titans${team}`,"titan",team);
+  makeOptions(WEAPONS,`weapons${team}`,"heavy",team);
+  makeOptions(TACTICALS,`tacticals${team}`,"tactical",team);
+}
+
+function makeOptions(list,target,field,team){
+  const el=document.getElementById(target); el.innerHTML="";
+  list.forEach(val=>{
+    const o=document.createElement("div");
+    o.className="option"; o.innerText=val;
+
+    // aktywny gracz
+    if(activePlayer && activePlayer.team===team){
+      const current = activePlayer.playerData[field];
+      if(current===val) o.classList.add("active");
+      else if(!canUse(field,val,team,activePlayer.id)) o.classList.add("disabled");
+    }
+
+    o.onclick = ()=>{
+      if(!activePlayer || activePlayer.team!==team) return alert("Najpierw wybierz gracza z tej drużyny");
+      const current = activePlayer.playerData[field];
+
+      if(current===val){
+        db.ref(`teams/${team}/${activePlayer.id}/${field}`).set("").then(()=>{
+          activePlayer.playerData[field]="";
+          renderOptions();
+        });
+        return;
+      }
+
+      if(!canUse(field,val,team,activePlayer.id)) return;
+      db.ref(`teams/${team}/${activePlayer.id}/${field}`).set(val).then(()=>{
+        activePlayer.playerData[field]=val;
+        renderOptions();
+      });
+    };
+
+    el.appendChild(o);
   });
 }
-function resetLoadouts(){ if(!isAdmin) return;
-  ['A','B'].forEach(t=>{
-    Object.keys(teamsData[t]||{}).forEach(id=>{
-      db.ref(`teams/${t}/${id}`).update({titan:"",heavy:"",tactical:""});
+
+/* ===== DUPLIKATY ===== */
+function highlightDuplicates(team){
+  const data = teamsData[team]||{};
+  const tytans = {}, heavy = {}, tacticals = {};
+  let dupExists = false;
+
+  Object.values(data).forEach(p=>{
+    if(p.titan){ tytans[p.titan] = (tytans[p.titan]||0)+1; }
+    if(p.heavy && p.heavy!=="Ognista gwiazda"){ heavy[p.heavy] = (heavy[p.heavy]||0)+1; }
+    if(p.tactical && LIMITED_TACTICALS.includes(p.tactical)){ tacticals[p.tactical] = (tacticals[p.tactical]||0)+1; }
+  });
+
+  Object.entries(data).forEach(([id,p])=>{
+    const div = document.querySelector(`#team${team} .player:nth-child(${Object.keys(data).indexOf(id)+1})`);
+    div.classList.remove("duplicate");
+    div.querySelectorAll(".loadout span").forEach(span=>span.classList.remove("duplicate"));
+    // tytan
+    if(p.titan && tytans[p.titan]>1){ 
+      div.classList.add("duplicate"); dupExists=true;
+      div.querySelector(".titan").classList.add("duplicate");
+    }
+    // heavy
+    if(p.heavy && p.heavy!=="Ognista gwiazda" && heavy[p.heavy]>1){
+      div.classList.add("duplicate"); dupExists=true;
+      div.querySelector(".heavy").classList.add("duplicate");
+    }
+    // tactical
+    if(p.tactical && LIMITED_TACTICALS.includes(p.tactical) && tacticals[p.tactical]>1){
+      div.classList.add("duplicate"); dupExists=true;
+      div.querySelector(".tactical").classList.add("duplicate");
+    }
+  });
+
+  // ostrzeżenie nad drużyną
+  document.getElementById(`dupWarning${team}`).style.display = dupExists?"block":"none";
+
+  // podświetlenie w panelu opcji
+  ['titans','weapons','tacticals'].forEach(section=>{
+    const el = document.getElementById(section+team);
+    el.querySelectorAll(".option").forEach(opt=>{
+      opt.classList.remove("duplicate");
+      if(section==="titans" && tytans[opt.innerText]>1) opt.classList.add("duplicate");
+      if(section==="weapons" && opt.innerText!=="Ognista gwiazda" && heavy[opt.innerText]>1) opt.classList.add("duplicate");
+      if(section==="tacticals" && LIMITED_TACTICALS.includes(opt.innerText) && tacticals[opt.innerText]>1) opt.classList.add("duplicate");
+    });
+  });
+}
+
+/* ===== ADMIN ===== */
+function addPlayer(){
+  if(!isAdmin) return;
+  const total = Object.keys(teamsData.A||{}).length + Object.keys(teamsData.B||{}).length;
+  const team = (Object.keys(teamsData.A||{}).length <= Object.keys(teamsData.B||{}).length) ? "A":"B";
+  if(Object.keys(teamsData[team]||{}).length >= MAX_PLAYERS_PER_TEAM) return alert("Osiągnięto limit graczy w drużynie");
+  const id="p"+Date.now();
+  db.ref(`teams/${team}/${id}`).set({nick:"Nowy gracz",titan:"",heavy:"",tactical:""});
+}
+
+function removePlayer(){
+  if(!isAdmin) return alert("Najpierw wybierz gracza do usunięcia");
+  const team = activePlayer.team;
+  const id = activePlayer.id;
+  if(confirm(`Na pewno chcesz usunąć gracza ${activePlayer.playerData.nick}?`)){
+    db.ref(`teams/${team}/${id}`).remove().then(()=>{
+      activePlayer = null;
+      renderTeam(team);
+    });
+  }
+}
+
+function movePlayer(){
+  if(!isAdmin) return;
+  const from=activePlayer.team, to=(from==="A")?"B":"A", id=activePlayer.id;
+  db.ref(`teams/${from}/${id}`).once("value",snap=>{
+    const data=snap.val(); if(!data) return;
+    const updates={};
+    updates[`teams/${to}/${id}`]=data;
+    updates[`teams/${from}/${id}`]=null;
+    db.ref().update(updates);
+    activePlayer=null;
+  });
+}
+
+function resetLoadouts(){
+  if(!isAdmin) return;
+   ['A','B'].forEach(team=>{
+    Object.keys(teamsData[team]||{}).forEach(id=>{
+      db.ref(`teams/${team}/${id}`).update({titan:"",heavy:"",tactical:""});
     });
   });
 }
