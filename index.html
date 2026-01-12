@@ -86,7 +86,27 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
-const isAdmin = location.search.includes("admin=1");
+const ADMIN_PASSWORD = "strach";
+
+let isAdmin = false;
+
+// sprawdzamy czy admin już zalogowany w tej sesji
+if (sessionStorage.getItem("isAdmin") === "1") {
+  isAdmin = true;
+}
+
+// jeśli ktoś wchodzi z ?admin=1 i nie jest zalogowany
+if (!isAdmin && location.search.includes("admin=1")) {
+  const pass = prompt("Podaj hasło admina:");
+  if (pass === ADMIN_PASSWORD) {
+    isAdmin = true;
+    sessionStorage.setItem("isAdmin", "1");
+  } else {
+    alert("Błędne hasło");
+  }
+}
+
+// pokazanie / ukrycie panelu admina
 document.getElementById("adminPanel").style.display = isAdmin ? "block" : "none";
 
 
@@ -321,6 +341,7 @@ function resetLoadouts(){
 </body>
 
 </html>
+
 
 
 
