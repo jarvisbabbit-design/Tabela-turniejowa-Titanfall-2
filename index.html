@@ -180,12 +180,27 @@ function makeOptions(list,target,field,team){
     const o=document.createElement("div");
     o.className="option"; o.innerText=val;
 
+    // 🔒 STAŁE WYSZARZENIE ZAJĘTYCH OPCJI (niezależnie od aktywnego gracza)
+let takenByTeam = false;
+
+Object.entries(teamsData[team] || {}).forEach(([id, p]) => {
+  if (field === "titan" && p.titan === val) takenByTeam = true;
+  if (field === "heavy" && val !== "Ognista gwiazda" && p.heavy === val) takenByTeam = true;
+  if (field === "tactical" && LIMITED_TACTICALS.includes(val) && p.tactical === val) takenByTeam = true;
+});
+
+if (takenByTeam) {
+  o.classList.add("disabled");
+}
+
     // aktywny gracz
     if(activePlayer && activePlayer.team===team){
       const current = activePlayer.playerData[field];
       if(current===val) o.classList.add("active");
-      else if(!canUse(field,val,team,activePlayer.id)) o.classList.add("disabled");
-    }
+      else if(!canUse(field,val,team,activePlayer.id)) {
+       o.classList.add("disabled");
+}
+
 
     o.onclick = ()=>{
       if(!activePlayer || activePlayer.team!==team) return alert("Najpierw wybierz gracza z tej drużyny");
@@ -305,4 +320,5 @@ function resetLoadouts(){
 </body>
 
 </html>
+
 
