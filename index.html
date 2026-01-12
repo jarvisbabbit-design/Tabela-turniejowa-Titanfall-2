@@ -24,6 +24,7 @@ h2 { text-align:center; margin:15px 0; }
 .options { display:flex; flex-wrap:wrap; gap:6px; }
 .option { padding:6px 10px; background:#444; border-radius:5px; cursor:pointer; user-select:none; }
 .option.disabled { opacity:0.3; cursor:not-allowed; }
+.option.disabled.active { opacity: 1; }
 .option.active { outline:2px solid #4caf50; }
 .option.duplicate { background:red; color:#fff; border:2px solid red; }
 .duplicate-warning { color:red; font-weight:bold; margin-bottom:5px; }
@@ -320,6 +321,7 @@ function resetLoadouts(){
 </body>
 
 </html>
+
 
 
 
