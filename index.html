@@ -194,13 +194,13 @@ if (takenByTeam) {
 }
 
     // aktywny gracz
-    if(activePlayer && activePlayer.team===team){
-      const current = activePlayer.playerData[field];
-      if(current===val) o.classList.add("active");
-      else if(!canUse(field,val,team,activePlayer.id)) {
-       o.classList.add("disabled");
-}
-
+if(activePlayer && activePlayer.team===team){
+  const current = activePlayer.playerData[field];
+  if(current===val) o.classList.add("active");
+  else if(!canUse(field,val,team,activePlayer.id)) {
+    o.classList.add("disabled");
+  }
+} 
 
     o.onclick = ()=>{
       if(!activePlayer || activePlayer.team!==team) return alert("Najpierw wybierz gracza z tej drużyny");
@@ -320,5 +320,6 @@ function resetLoadouts(){
 </body>
 
 </html>
+
 
 
